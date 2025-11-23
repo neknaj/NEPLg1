@@ -138,32 +138,32 @@ pub struct PipeChain {
 pub struct IfExpr {
     pub if_branch: IfBranch,
     pub elseif_branches: Vec<IfBranch>,
-    pub else_branch: Expr,
+    pub else_branch: Box<Expr>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IfBranch {
-    pub condition: Expr,
-    pub body: Expr,
+    pub condition: Box<Expr>,
+    pub body: Box<Expr>,
 }
 
 /// Loop expression: `loop <body>`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoopExpr {
-    pub body: Expr,
+    pub body: Box<Expr>,
 }
 
 /// While expression: `while cond body`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhileExpr {
-    pub condition: Expr,
-    pub body: Expr,
+    pub condition: Box<Expr>,
+    pub body: Box<Expr>,
 }
 
 /// Match expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchExpr {
-    pub scrutinee: Expr,
+    pub scrutinee: Box<Expr>,
     pub cases: ScopedList<MatchCase>,
 }
 
@@ -171,7 +171,7 @@ pub struct MatchExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchCase {
     pub pattern: Pattern,
-    pub body: Expr,
+    pub body: Box<Expr>,
     pub span: Span,
 }
 
@@ -207,17 +207,11 @@ pub struct ScopedList<T> {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LetExpr {
     pub is_pub: bool,
-    pub suffix: Option<LetSuffix>,
+    pub is_mut: bool,
+    pub is_hoist: bool,
     pub name: Ident,
-    pub value: Option<Expr>,
+    pub value: Box<Expr>,
     pub span: Span,
-}
-
-/// Suffix for let bindings: `mut` or `hoist`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LetSuffix {
-    Mut,
-    Hoist,
 }
 
 /// Let-function expression: `fn name = expr`.
@@ -225,21 +219,21 @@ pub enum LetSuffix {
 pub struct LetFunctionExpr {
     pub is_pub: bool,
     pub name: Ident,
-    pub value: Option<Expr>,
+    pub value: Box<Expr>,
     pub span: Span,
 }
 
 /// Include expression: `include "path"`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IncludeExpr {
-    pub path: Expr, // typically a string literal
+    pub path: String, // typically a string literal
     pub span: Span,
 }
 
 /// Import expression: `import name`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImportExpr {
-    pub name: Expr, // typically a path-like sequence
+    pub name: Ident,
     pub span: Span,
 }
 
@@ -248,7 +242,7 @@ pub struct ImportExpr {
 pub struct NamespaceExpr {
     pub is_pub: bool,
     pub name: Ident,
-    pub body: Expr, // usually a block / scoped list
+    pub body: Box<Expr>, // usually a block / scoped list
     pub span: Span,
 }
 
@@ -256,45 +250,37 @@ pub struct NamespaceExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseExpr {
     pub is_pub: bool,
-    pub tree: UseTree,
+    pub path: Path,
+    pub alias: Option<Ident>,
     pub span: Span,
 }
 
-/// Use tree: `path [as ident]` or `path::*`.
+/// Use path: `ident :: ident :: ...` with optional trailing glob.
 #[derive(Debug, Clone, PartialEq)]
-pub enum UseTree {
-    Path {
-        path: UsePath,
-        alias: Option<Ident>,
-    },
-    Glob(UsePath),
-}
-
-/// Use path: `ident :: ident :: ...`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct UsePath {
-    pub segments: Vec<Ident>,
+pub enum Path {
+    Simple { segments: Vec<String> },
+    Glob { segments: Vec<String> },
 }
 
 /// When expression: `when (expr) body`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WhenExpr {
-    pub condition: Expr,
-    pub body: Expr, // scoped expression
+    pub condition: Box<Expr>,
+    pub body: Box<Expr>, // scoped expression
     pub span: Span,
 }
 
 /// Return expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReturnExpr {
-    pub value: Option<Expr>,
+    pub value: Option<Box<Expr>>,
     pub span: Span,
 }
 
 /// Break expression.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BreakExpr {
-    pub value: Option<Expr>,
+    pub value: Option<Box<Expr>>,
     pub span: Span,
 }
 
@@ -306,24 +292,16 @@ pub struct ContinueExpr {
 
 /// Assignable target used by `set`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Assignable {
-    /// Simple variable: `x`
-    Ident(Ident),
-    /// Field access: `expr.name`
-    ///
-    /// NOTE: the parser currently only supports `set <ident> <expr>`.
-    /// More complex field assignments will be added later.
-    Field {
-        base: Box<Expr>,
-        field: Ident,
-    },
+pub struct Assignable {
+    pub base: Box<Expr>,
+    pub fields: Vec<Ident>,
 }
 
 /// Set expression: `set target expr`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SetExpr {
     pub target: Assignable,
-    pub value: Expr,
+    pub value: Box<Expr>,
     pub span: Span,
 }
 
@@ -340,7 +318,7 @@ pub struct EnumDefExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
     pub name: Ident,
-    pub payload_types: Vec<Expr>, // type expressions, parsed as Expr for now
+    pub payload_types: Vec<TypeExpr>,
     pub span: Span,
 }
 
@@ -357,37 +335,52 @@ pub struct StructDefExpr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructField {
     pub name: Ident,
-    pub ty: Expr, // type expression, parsed as Expr for now
+    pub ty: TypeExpr,
     pub span: Span,
+}
+
+/// Parsed type expression used by enum payloads and struct fields.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TypeExpr {
+    pub span: Span,
+    pub kind: TypeExprKind,
+}
+
+/// Kinds of parsed type expressions.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeExprKind {
+    Named(String),
+    Fn(Vec<TypeExpr>, Box<TypeExpr>, Box<TypeExpr>),
+    Paren(Box<TypeExpr>),
 }
 
 /// Patterns used in match expressions.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
-    /// Literal pattern.
-    Literal(LiteralKind, Span),
-    /// Identifier pattern, which binds a new variable.
-    Ident(Ident),
-    /// Wildcard `_`.
+    Literal(Expr),
+    Ident(String, Span),
     Wildcard(Span),
-    /// Enum variant pattern: `Variant(p1, p2, ...)` or `Variant`.
-    EnumVariant {
-        name: Ident,
-        args: Vec<Pattern>,
-        span: Span,
-    },
-    /// Struct pattern: `Type { field: pat, ... }`.
-    Struct {
-        name: Ident,
-        fields: Vec<StructFieldPattern>,
-        span: Span,
-    },
+    Enum(EnumPattern),
+    Struct(StructPattern),
 }
 
 /// Single field pattern in a struct pattern.
 #[derive(Debug, Clone, PartialEq)]
-pub struct StructFieldPattern {
-    pub field_name: Ident,
+pub struct StructPatternField {
+    pub field: String,
     pub pattern: Pattern,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumPattern {
+    pub ctor: String,
+    pub args: Vec<Pattern>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructPattern {
+    pub ctor: String,
+    pub fields: Vec<StructPatternField>,
     pub span: Span,
 }

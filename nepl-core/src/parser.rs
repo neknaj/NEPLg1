@@ -19,8 +19,10 @@
 
 #![allow(dead_code)]
 
+use alloc::borrow::ToOwned;
 use alloc::boxed::Box;
-use alloc::string::String;
+use alloc::string::{String, ToString};
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::ast::*;
@@ -50,7 +52,7 @@ pub struct ParseResult {
 pub fn parse_file(file_id: FileId, source: &str) -> ParseResult {
     let LexResult {
         tokens,
-        diagnostics: mut lex_diags,
+        diagnostics: lex_diags,
     } = lex(file_id, source);
 
     let mut parser = Parser::new(source, &tokens);
@@ -467,8 +469,8 @@ impl<'src> Parser<'src> {
         });
 
         let if_branch = IfBranch {
-            condition: cond,
-            body: then_body,
+            condition: Box::new(cond),
+            body: Box::new(then_body),
         };
 
         // zero or more `elseif`
@@ -490,7 +492,10 @@ impl<'src> Parser<'src> {
                     span: cond.span,
                 }
             });
-            elseif_branches.push(IfBranch { condition: cond, body });
+            elseif_branches.push(IfBranch {
+                condition: Box::new(cond),
+                body: Box::new(body),
+            });
         }
 
         // optional `else`, required by the spec
@@ -508,7 +513,7 @@ impl<'src> Parser<'src> {
             kind: ExprKind::If(IfExpr {
                 if_branch,
                 elseif_branches,
-                else_branch: else_body,
+                else_branch: Box::new(else_body),
             }),
             span,
         })
@@ -525,7 +530,9 @@ impl<'src> Parser<'src> {
         });
         let span = self.merge_spans(loop_tok.span, body.span);
         Some(Expr {
-            kind: ExprKind::Loop(LoopExpr { body }),
+            kind: ExprKind::Loop(LoopExpr {
+                body: Box::new(body),
+            }),
             span,
         })
     }
@@ -548,7 +555,10 @@ impl<'src> Parser<'src> {
         });
         let span = self.merge_spans(while_tok.span, body.span);
         Some(Expr {
-            kind: ExprKind::While(WhileExpr { condition: cond, body }),
+            kind: ExprKind::While(WhileExpr {
+                condition: Box::new(cond),
+                body: Box::new(body),
+            }),
             span,
         })
     }
@@ -567,7 +577,10 @@ impl<'src> Parser<'src> {
         let span = self.merge_spans(match_tok.span, cases.span);
 
         Some(Expr {
-            kind: ExprKind::Match(MatchExpr { scrutinee, cases }),
+            kind: ExprKind::Match(MatchExpr {
+                scrutinee: Box::new(scrutinee),
+                cases,
+            }),
             span,
         })
     }
@@ -584,7 +597,11 @@ impl<'src> Parser<'src> {
             }
         });
         let span = self.merge_spans(case_tok.span, body.span);
-        Some(MatchCase { pattern, body, span })
+        Some(MatchCase {
+            pattern,
+            body: Box::new(body),
+            span,
+        })
     }
 
     // === scoped_expr and scoped_list =========================================
@@ -765,7 +782,8 @@ impl<'src> Parser<'src> {
                 is_mut,
                 is_hoist,
                 name: ident,
-                value,
+                value: Box::new(value),
+                span,
             }),
             span,
         })
@@ -799,7 +817,8 @@ impl<'src> Parser<'src> {
             kind: ExprKind::LetFunction(LetFunctionExpr {
                 is_pub: false,
                 name: ident,
-                value,
+                value: Box::new(value),
+                span,
             }),
             span,
         })
@@ -812,7 +831,7 @@ impl<'src> Parser<'src> {
 
         let span = self.merge_spans(inc_tok.span, path_tok.span);
         Some(Expr {
-            kind: ExprKind::Include(IncludeExpr { path }),
+            kind: ExprKind::Include(IncludeExpr { path, span }),
             span,
         })
     }
@@ -827,7 +846,7 @@ impl<'src> Parser<'src> {
         };
         let span = self.merge_spans(imp_tok.span, name_tok.span);
         Some(Expr {
-            kind: ExprKind::Import(ImportExpr { name: ident }),
+            kind: ExprKind::Import(ImportExpr { name: ident, span }),
             span,
         })
     }
@@ -888,7 +907,8 @@ impl<'src> Parser<'src> {
             kind: ExprKind::Namespace(NamespaceExpr {
                 is_pub,
                 name: ident,
-                body,
+                body: Box::new(body),
+                span,
             }),
             span,
         })
@@ -925,6 +945,7 @@ impl<'src> Parser<'src> {
                 is_pub,
                 path,
                 alias,
+                span,
             }),
             span,
         })
@@ -970,7 +991,11 @@ impl<'src> Parser<'src> {
         });
         let span = self.merge_spans(when_tok.span, body.span);
         Some(Expr {
-            kind: ExprKind::When(WhenExpr { condition: cond, body }),
+            kind: ExprKind::When(WhenExpr {
+                condition: Box::new(cond),
+                body: Box::new(body),
+                span,
+            }),
             span,
         })
     }
@@ -990,7 +1015,10 @@ impl<'src> Parser<'src> {
             ret_tok.span
         };
         Some(Expr {
-            kind: ExprKind::Return(ReturnExpr { value: expr }),
+            kind: ExprKind::Return(ReturnExpr {
+                value: expr.map(Box::new),
+                span,
+            }),
             span,
         })
     }
@@ -1008,7 +1036,10 @@ impl<'src> Parser<'src> {
             br_tok.span
         };
         Some(Expr {
-            kind: ExprKind::Break(BreakExpr { value: expr }),
+            kind: ExprKind::Break(BreakExpr {
+                value: expr.map(Box::new),
+                span,
+            }),
             span,
         })
     }
@@ -1016,7 +1047,7 @@ impl<'src> Parser<'src> {
     fn parse_continue_expr(&mut self) -> Option<Expr> {
         let c_tok = self.expect(TokenKind::Continue, "expected 'continue'")?;
         Some(Expr {
-            kind: ExprKind::Continue(ContinueExpr {}),
+            kind: ExprKind::Continue(ContinueExpr { span: c_tok.span }),
             span: c_tok.span,
         })
     }
@@ -1026,13 +1057,13 @@ impl<'src> Parser<'src> {
         let target = self.parse_assignable().unwrap_or_else(|| {
             self.error(set_tok.span, "expected assignment target after 'set'");
             Assignable {
-                base: Expr {
+                base: Box::new(Expr {
                     kind: ExprKind::Ident(Ident {
                         name: "<error>".to_string(),
                         span: set_tok.span,
                     }),
                     span: set_tok.span,
-                },
+                }),
                 fields: Vec::new(),
             }
         });
@@ -1045,7 +1076,11 @@ impl<'src> Parser<'src> {
         });
         let span = self.merge_spans(set_tok.span, value.span);
         Some(Expr {
-            kind: ExprKind::Set(SetExpr { target, value }),
+            kind: ExprKind::Set(SetExpr {
+                target,
+                value: Box::new(value),
+                span,
+            }),
             span,
         })
     }
@@ -1070,7 +1105,10 @@ impl<'src> Parser<'src> {
             }
         }
 
-        Some(Assignable { base, fields })
+        Some(Assignable {
+            base: Box::new(base),
+            fields,
+        })
     }
 
     // === enum / struct definitions ===========================================
@@ -1112,6 +1150,7 @@ impl<'src> Parser<'src> {
                 is_pub,
                 name: ident,
                 variants,
+                span,
             }),
             span,
         })
@@ -1144,9 +1183,15 @@ impl<'src> Parser<'src> {
             let _ = self.expect(TokenKind::RParen, "expected ')' after enum variant payload");
         }
 
+        let span = payload_types
+            .last()
+            .map(|ty| self.merge_spans(name_tok.span, ty.span))
+            .unwrap_or(name_tok.span);
+
         Some(EnumVariant {
             name: name_ident,
             payload_types,
+            span,
         })
     }
 
@@ -1168,6 +1213,7 @@ impl<'src> Parser<'src> {
                 is_pub,
                 name: ident,
                 fields,
+                span,
             }),
             span,
         })
@@ -1182,7 +1228,8 @@ impl<'src> Parser<'src> {
         };
         self.expect(TokenKind::Colon, "expected ':' after field name")?;
         let ty = self.parse_type_expr()?;
-        Some(StructField { name: name_ident, ty })
+        let span = self.merge_spans(name_tok.span, ty.span);
+        Some(StructField { name: name_ident, ty, span })
     }
 
     // === pattern parsing ======================================================
@@ -1197,10 +1244,6 @@ impl<'src> Parser<'src> {
                 let lit_expr = self.parse_literal_expr()?;
                 Some(Pattern::Literal(lit_expr))
             }
-            TokenKind::Underscore => {
-                let tok = self.advance();
-                Some(Pattern::Wildcard(tok.span))
-            }
             _ => {
                 let span = self.current().span;
                 self.error(span, "expected pattern");
@@ -1212,6 +1255,10 @@ impl<'src> Parser<'src> {
     fn parse_ident_or_composite_pattern(&mut self) -> Option<Pattern> {
         let head_tok = self.expect(TokenKind::Ident, "expected identifier in pattern")?;
         let head_name = self.slice_token_text(&head_tok);
+
+        if head_name == "_" {
+            return Some(Pattern::Wildcard(head_tok.span));
+        }
 
         // Look ahead:
         // * `Ident` alone  -> variable pattern

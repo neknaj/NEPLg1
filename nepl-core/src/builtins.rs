@@ -7,9 +7,10 @@
 
 #![allow(dead_code)]
 
+use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::types::{ArrowKind, Type};
+use crate::types::Type;
 
 /// Kind of builtin, used by backends to decide how to lower a call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,41 +44,38 @@ pub struct BuiltinDescriptor {
     pub kind: BuiltinKind,
 }
 
-/// The complete list of builtins known to the core.
+/// Construct the list of builtins known to the core.
 ///
 /// New backends and stdlib code should prefer referring to this
 /// table instead of hard-coding builtin names.
-pub const BUILTINS: &[BuiltinDescriptor] = &[
-    BuiltinDescriptor {
-        name: "page_size",
-        logical_module: "platform.wasm_core",
-        ty: Type::impure_function(Vec::new(), Type::I32),
-        kind: BuiltinKind::WasmPageSize,
-    },
-    BuiltinDescriptor {
-        name: "random_i32",
-        logical_module: "platform.wasi",
-        ty: Type::impure_function(Vec::new(), Type::I32),
-        kind: BuiltinKind::WasiRandomI32,
-    },
-    BuiltinDescriptor {
-        name: "print_i32",
-        logical_module: "platform.wasi",
-        ty: Type::impure_function(vec![Type::I32], Type::Unit),
-        kind: BuiltinKind::WasiPrintI32,
-    },
-];
+pub fn builtins() -> Vec<BuiltinDescriptor> {
+    vec![
+        BuiltinDescriptor {
+            name: "page_size",
+            logical_module: "platform.wasm_core",
+            ty: Type::impure_function(Vec::new(), Type::I32),
+            kind: BuiltinKind::WasmPageSize,
+        },
+        BuiltinDescriptor {
+            name: "random_i32",
+            logical_module: "platform.wasi",
+            ty: Type::impure_function(Vec::new(), Type::I32),
+            kind: BuiltinKind::WasiRandomI32,
+        },
+        BuiltinDescriptor {
+            name: "print_i32",
+            logical_module: "platform.wasi",
+            ty: Type::impure_function(vec![Type::I32], Type::Unit),
+            kind: BuiltinKind::WasiPrintI32,
+        },
+    ]
+}
 
 /// Look up a builtin by its NEPL-level name.
 ///
 /// The search is linear over `BUILTINS` because the table is small.
 /// If performance ever matters, this can be optimized with a more
 /// elaborate indexing structure (still no_std-compatible).
-pub fn find_builtin(name: &str) -> Option<&'static BuiltinDescriptor> {
-    for b in BUILTINS {
-        if b.name == name {
-            return Some(b);
-        }
-    }
-    None
+pub fn find_builtin(name: &str) -> Option<BuiltinDescriptor> {
+    builtins().into_iter().find(|b| b.name == name)
 }

@@ -58,7 +58,8 @@ fn emit_const_i32_module(value: i32) -> Vec<u8> {
 
     // Type section: (-> i32)
     let mut types = TypeSection::new();
-    let type_index = types.function(Vec::<ValType>::new(), [ValType::I32]);
+    let type_index = types.len();
+    types.ty().function(Vec::<ValType>::new(), [ValType::I32]);
     module.section(&types);
 
     // Function section: one function of the given type

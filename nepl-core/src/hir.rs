@@ -7,6 +7,7 @@
 
 #![allow(dead_code)]
 
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -24,7 +25,7 @@ pub struct HirIdent {
 }
 
 /// Function parameter in HIR.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HirParam {
     pub name: HirIdent,
     pub ty: Type,
@@ -36,7 +37,7 @@ pub struct HirParam {
 ///
 /// Overloaded functions will be represented as sets of HirFunction
 /// values associated with the same name at a higher level.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HirFunction {
     pub name: HirIdent,
     pub params: Vec<HirParam>,
@@ -48,7 +49,7 @@ pub struct HirFunction {
 /// A HIR module / compilation unit.
 ///
 /// Laterこの中に `enum` や `struct`、トップレベル `let` なども入れていく想定。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HirModule {
     pub functions: Vec<HirFunction>,
     // TODO: enums, structs, global values, namespaces
@@ -57,16 +58,16 @@ pub struct HirModule {
 /// Assignable expressions used by `set`.
 ///
 /// For now, this supports variables and simple field access paths.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HirAssignable {
-    pub base: HirExpr,
+    pub base: Box<HirExpr>,
     pub fields: Vec<HirIdent>,
 }
 
 /// Expression node in HIR.
 ///
 /// `HirExpr` は必ず `Type` と `Span` を持つ。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HirExpr {
     pub kind: HirExprKind,
     pub ty: Type,
@@ -76,7 +77,7 @@ pub struct HirExpr {
 /// HIR expression kind.
 ///
 /// この段階では P-style の解決やオーバーロード解決が終わっている前提。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum HirExprKind {
     // Literals
     I32(i32),
@@ -106,7 +107,7 @@ pub enum HirExprKind {
 
     // set expression (assignment); result typeは Unit のはず
     Set {
-        target: HirAssignable,
+        target: Box<HirAssignable>,
         value: Box<HirExpr>,
     },
 
@@ -152,14 +153,14 @@ pub enum HirExprKind {
 }
 
 /// A single match arm: `pattern => expr`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HirMatchArm {
     pub pattern: HirPattern,
     pub body: HirExpr,
 }
 
 /// Patterns for match expressions.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum HirPattern {
     // literal patterns
     LitI32(i32),
@@ -189,7 +190,7 @@ pub enum HirPattern {
 }
 
 /// Field pattern in a struct pattern: `field_name: pattern`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HirStructPatternField {
     pub field: HirIdent,
     pub pattern: HirPattern,
