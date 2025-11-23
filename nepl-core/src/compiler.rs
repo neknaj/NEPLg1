@@ -551,6 +551,48 @@ mod tests {
         assert_eq!(result, 4096);
     }
 
+    fn run_wasm_expression(source: &str) -> i32 {
+        let artifact = compile_wasm(source, default_stdlib_root()).expect("compile should succeed");
+        let engine = wasmi::Engine::default();
+        let module = wasmi::Module::new(&engine, &artifact.wasm).expect("module");
+        let linker = wasmi::Linker::new(&engine);
+        let mut store = wasmi::Store::new(&engine, ());
+        let instance = linker
+            .instantiate_and_start(&mut store, &module)
+            .expect("instantiate");
+        let main = instance
+            .get_typed_func::<(), i32>(&store, "main")
+            .expect("typed func");
+        main.call(&mut store, ()).expect("run")
+    }
+
+    #[test]
+    fn executes_logic_and_comparisons_in_wasm() {
+        let result = run_wasm_expression("and (lt 1 2) (ge 5 5)");
+        assert_eq!(result, 1);
+
+        let result = run_wasm_expression("or (eq 0 1) (not 0)");
+        assert_eq!(result, 1);
+    }
+
+    #[test]
+    fn executes_bitwise_operations_in_wasm() {
+        let result = run_wasm_expression("bit_or (bit_and 6 3) (bit_shl 1 2)");
+        assert_eq!(result, 6);
+
+        let result = run_wasm_expression("bit_xor (bit_not 0) 1");
+        assert_eq!(result, -2);
+    }
+
+    #[test]
+    fn executes_arithmetic_chains_in_wasm() {
+        let result = run_wasm_expression("mod (sub 10 3) 4");
+        assert_eq!(result, 3);
+
+        let result = run_wasm_expression("add (mul 2 5) (div 20 4)");
+        assert_eq!(result, 15);
+    }
+
     #[test]
     fn records_and_executes_wasi_builtins() {
         let artifact = compile_wasm("wasi_print (wasi_random)", default_stdlib_root())

@@ -4,7 +4,7 @@ Workspace for the Neknaj Expression Prefix Language (NEPL) toolchain. The reposi
 parses, and validates a small arithmetic-focused subset of NEPL, plus a command-line interface for compiling sources to WebAssembly or LLVM IR.
 
 ## Crates
-- `nepl-core`: Loads the `.nepl` standard library files from `./stdlib`, parses prefix arithmetic expressions (`add`, `sub`, `mul`, `div`, `neg`), validates them, and emits executable WebAssembly modules or LLVM IR that returns the computed value.
+- `nepl-core`: Loads the `.nepl` standard library files from `./stdlib`, parses prefix expressions (`add`, `sub`, `mul`, `div`, `mod`, `pow`, `neg`, comparisons, bitwise ops, logic ops), validates them, and emits executable WebAssembly modules or LLVM IR that returns the computed value.
 - `nepl-cli`: Provides a Clap-based CLI for compiling sources, writing output artifacts, and executing WebAssembly output through `wasmi`.
 
 ## Usage
@@ -24,7 +24,7 @@ The CLI accepts input from stdin when `--input` is omitted.
 
 ### Supported expression forms
 
-The current implementation supports prefix arithmetic expressions built from the operators `add`, `sub`, `mul`, `div`, and `neg`, using integer literals. Parentheses can be used to group expressions. Imports for target-specific built-ins are generated when you reference them in source code, and `nepl-cli --run` links default host behavior through `wasmi` 0.51:
+The current implementation supports prefix arithmetic expressions built from the operators `add`, `sub`, `mul`, `div`, `mod`, `pow`, `neg`, comparisons (`lt`, `le`, `eq`, `ne`, `gt`, `ge`), bitwise operators, and boolean operators (`and`, `or`, `not`, `xor`), using integer literals. Parentheses can be used to group expressions. Imports for target-specific built-ins are generated when you reference them in source code, and `nepl-cli --run` links default host behavior through `wasmi` 0.51:
 
 - `wasm_pagesize` imports `env.wasm_pagesize` and returns the host-provided page size (default: 65,536 bytes).
 - `wasi_random` imports `wasi_snapshot_preview1.wasi_random` and returns a deterministic host number (default: 4).
