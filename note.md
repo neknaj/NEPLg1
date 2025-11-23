@@ -14,3 +14,4 @@
 - Added wasm execution tests that cover logical, comparison, bitwise, and arithmetic chains to verify code generation works end-to-end through wasmi 0.51, and updated README coverage of the supported operators.
 - Expanded the parser, lexer, and evaluator to understand string literals and vector literals, added runtime support for their stdlib operators (len/push/pop/get/concat), and validated them through new core and CLI wasm execution tests.
 - Added a `convert` stdlib namespace for `parse_i32` / `to_string` / `to_bool`, wired the evaluator to handle the conversions (including error cases), refreshed stdlib loading assertions, and exercised the new helpers through wasm execution paths.
+- Introduced a bundled `examples/io_pipeline.nepl` program that demonstrates standard I/O built-ins and composite operations, documented it in the README, and added a CLI test that compiles and executes it through wasmi.
