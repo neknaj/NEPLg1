@@ -1,5 +1,5 @@
 [workspace]
-members = ["nepl-core", "nepl-cli"]
+members = ["nepl-core", "nepl-cli", "nepl-web-playground"]
 resolver = "2"
 
 [workspace.package]
@@ -13,6 +13,7 @@ walkdir = "2.5"
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
 wasmi = "0.51"
+wasm-bindgen = "0.2"
 assert_cmd = "2.0"
 predicates = "3.1"
 tempfile = "3.10"

@@ -1,0 +1,12 @@
+[package]
+name = "nepl-web-playground"
+version = "0.1.0"
+edition = "2024"
+authors = ["NEPL Team"]
+
+[dependencies]
+wasmi.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+wasm-encoder.workspace = true
