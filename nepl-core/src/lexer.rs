@@ -6,6 +6,7 @@ pub enum TokenKind {
     Number(i32),
     LParen,
     RParen,
+    Pipe,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,6 +27,10 @@ pub fn lex(input: &str) -> Result<Vec<Token>, CoreError> {
             }),
             ')' => tokens.push(Token {
                 kind: TokenKind::RParen,
+                position: idx,
+            }),
+            '>' => tokens.push(Token {
+                kind: TokenKind::Pipe,
                 position: idx,
             }),
             c if c.is_whitespace() => continue,
@@ -95,6 +100,12 @@ mod tests {
     fn lexes_numbers_and_idents() {
         let tokens = lex("add 1 (sub 3 2)").expect("lex should succeed");
         assert_eq!(tokens.len(), 7);
+    }
+
+    #[test]
+    fn lexes_pipe_operator() {
+        let tokens = lex("1 > neg").expect("lex should succeed");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Pipe)));
     }
 
     #[test]
