@@ -24,16 +24,16 @@ The CLI accepts input from stdin when `--input` is omitted.
 
 ### Supported expression forms
 
-The current implementation supports prefix arithmetic expressions built from the operators `add`, `sub`, `mul`, `div`, and `neg`, using integer literals. Parentheses can be used to group expressions. Imports for target-specific built-ins are generated when you reference them in source code:
+The current implementation supports prefix arithmetic expressions built from the operators `add`, `sub`, `mul`, `div`, and `neg`, using integer literals. Parentheses can be used to group expressions. Imports for target-specific built-ins are generated when you reference them in source code, and `nepl-cli --run` links default host behavior through `wasmi` 0.51:
 
-- `wasm_pagesize` imports `env.wasm_pagesize` and returns the host-provided page size.
-- `wasi_random` imports `wasi_snapshot_preview1.wasi_random` and returns a host-provided number.
-- `wasi_print <value>` imports `wasi_snapshot_preview1.wasi_print` to emit the value and return it for further chaining.
+- `wasm_pagesize` imports `env.wasm_pagesize` and returns the host-provided page size (default: 65,536 bytes).
+- `wasi_random` imports `wasi_snapshot_preview1.wasi_random` and returns a deterministic host number (default: 4).
+- `wasi_print <value>` imports `wasi_snapshot_preview1.wasi_print` to emit the value and return it for further chaining. The default host implementation prints to stdout.
 
 The pipe operator `>` is available as a convenience for threading the previous result into the next function call. For example, `1 > neg > add 2` desugars to `add (neg 1) 2`.
 
 ## Standard library layout
-Place `.nepl` files under `./stdlib`. The core crate loads every `.nepl` file recursively, making them available to compilation routines. The CLI uses this bundled path by default, and you can point it to an alternate root with `--stdlib /path/to/stdlib` when testing different library layouts. Platform shims live under `stdlib/platform` and wrap the WASM/WASI built-ins exposed by the compiler.
+Place `.nepl` files under `./stdlib`. The core crate loads every `.nepl` file recursively and records the relative path and contents in the `CompilationArtifact` so downstream tooling can embed or inspect the bundled library. The CLI uses this bundled path by default, and you can point it to an alternate root with `--stdlib /path/to/stdlib` when testing different library layouts. Platform shims live under `stdlib/platform` and wrap the WASM/WASI built-ins exposed by the compiler.
 
 ## Testing
 Run host tests for all crates:
