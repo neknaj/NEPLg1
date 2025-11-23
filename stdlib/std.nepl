@@ -1,0 +1,5 @@
+// Core standard library placeholder for NEPL.
+// Future commits will populate actual definitions.
+namespace std:
+    // math operations would be defined here
+    // add more modules as language features grow
