@@ -1,6 +1,8 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
     Number(i32),
+    String(String),
+    Vector(Vec<Expr>),
     Call { name: String, args: Vec<Expr> },
 }
 

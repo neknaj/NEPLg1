@@ -93,7 +93,12 @@ pub fn to_descriptor(builtin: &Builtin) -> BuiltinDescriptor {
 
 fn collect_builtin_names(expr: &Expr, names: &mut HashSet<String>) {
     match expr {
-        Expr::Number(_) => {}
+        Expr::Number(_) | Expr::String(_) => {}
+        Expr::Vector(values) => {
+            for value in values {
+                collect_builtin_names(value, names);
+            }
+        }
         Expr::Call { name, args } => {
             names.insert(name.clone());
             for arg in args {

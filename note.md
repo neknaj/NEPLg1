@@ -12,3 +12,4 @@
 - Introduced a reusable builtin handler trait in the CLI so host environments can override WASM/WASI bindings; tests now assert custom handlers receive calls and can log values.
 - Added artifact-facing checks that surface bundled stdlib contents for consumers and documented the default host behaviors in the README to keep the CLI and stdlib expectations aligned.
 - Added wasm execution tests that cover logical, comparison, bitwise, and arithmetic chains to verify code generation works end-to-end through wasmi 0.51, and updated README coverage of the supported operators.
+- Expanded the parser, lexer, and evaluator to understand string literals and vector literals, added runtime support for their stdlib operators (len/push/pop/get/concat), and validated them through new core and CLI wasm execution tests.
