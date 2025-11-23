@@ -4,16 +4,35 @@
 - Added explicit stdlib root existence checks and recorded stdlib files in compilation artifacts; missing roots now surface as errors in both core and CLI flows.
 - Reworked CLI tests to exercise the execution pipeline directly without spawning the binary and validated wasm outputs with wasmi.
 - Added a core test that instantiates generated wasm with wasmi to ensure runtime compatibility.
-- Current implementation still reflects the minimal arithmetic subset; broader language features from `plan.md` and `doc/starting_detail.md` (namespaces, full typing, etc.) remain TODO.
-- Implemented a structured standard library layout under `stdlib/` with math, logic, and bitwise namespaces and expanded the evaluator to cover those operators, including combinatorics and overflow checks.
-- Extended the standard library surface with string, vector, and platform placeholder modules and updated stdlib loading tests to assert their presence.
-- Added a built-in facility for WASM/WASI imports, recorded them in compilation artifacts, and linked them in the CLI runtime so `--run` can execute modules that depend on host intrinsics.
-- Finished the platform stdlib modules to wrap the new built-ins and added runtime tests (core + CLI) that exercise `wasm_pagesize`, `wasi_random`, and `wasi_print` through wasmi 0.51.
-- Introduced a reusable builtin handler trait in the CLI so host environments can override WASM/WASI bindings; tests now assert custom handlers receive calls and can log values.
-- Added artifact-facing checks that surface bundled stdlib contents for consumers and documented the default host behaviors in the README to keep the CLI and stdlib expectations aligned.
-- Added wasm execution tests that cover logical, comparison, bitwise, and arithmetic chains to verify code generation works end-to-end through wasmi 0.51, and updated README coverage of the supported operators.
-- Expanded the parser, lexer, and evaluator to understand string literals and vector literals, added runtime support for their stdlib operators (len/push/pop/get/concat), and validated them through new core and CLI wasm execution tests.
-- Added a `convert` stdlib namespace for `parse_i32` / `to_string` / `to_bool`, wired the evaluator to handle the conversions (including error cases), refreshed stdlib loading assertions, and exercised the new helpers through wasm execution paths.
-- Introduced a bundled `examples/io_pipeline.nepl` program that demonstrates standard I/O built-ins and composite operations, documented it in the README, and added a CLI test that compiles and executes it through wasmi.
-- Added a web playground scaffold under `web/`, wired a deployment script that clones the external `editorsample` editor into the vendor directory with configurable overrides, documented the setup in the README, and added CLI-side tests to verify the clone/update workflow.
-- Added a `nepl-web-playground` crate that wraps wasmi with fuel metering for browser use, provides fuel-sliced execution helpers, and updated the README to describe how to keep the playground responsive.
+- Current implementation reflects a minimal prefix-expression subset:
+  - Literals: numbers, strings, vectors.
+  - Operators: arithmetic, logic, comparison, bitwise, combinatorics, and some string/vector operations.
+  - Built-in wasm/wasi functions and a structured stdlib layout.
+  - No user-defined variables/functions, namespaces, or type system beyond “expression must evaluate to i32”.
+- Broader language features from `plan.md`, `plan2.md`, and `doc/starting_detail.md` (P-style ambiguous expressions, full typing, namespaces, include/import/use, enum/struct, `loop`/`match`/`set`, `Never`, overload resolution) remain TODO.
+- Introduced a `types` module that defines:
+  - Primitive types (`i32`, `i64`, `f32`, `f64`, `Bool`, `Unit`, `Never`).
+  - Function types `(T1, ..., Tn) -> R` and `(T1, ..., Tn) *> R` with an `ArrowKind` enum.
+  - Subtyping utilities that treat `Never` as a bottom type and a `least_common_supertype` helper for control-flow typing.
+- Introduced a `hir` module that defines:
+  - A typed high-level IR `HIRExpr` with support for literals, variables, calls, `Let`, `Set`, `If`, `While`, `Loop`, `Match`, `Return`, `Break`, `Continue`, and block expressions.
+  - Structures for function definitions, parameters, assignable expressions, and patterns used by `match`.
+
+## Next implementation steps (planned)
+
+- Add a `name_resolve` module that builds symbol tables for namespaces, functions, and types across all input files, following the rules in the design documents:
+  - `namespace`, `include`, `import`, and `use` control how names become visible.
+  - `enum` and `struct` declarations introduce new named types and associated constructors/fields.
+- Add a `typecheck` module that consumes an untyped AST and produces HIR:
+  - Perform name resolution and treat `Never` as a bottom type when typing `if` and `match`.
+  - Enforce the typing rules for `loop` and `while`, including `break`/`break expr`/`continue`.
+  - Enforce purity rules for `*>` functions, mutable parameters, `let mut`, and `set`.
+  - Implement overload resolution for functions and operators according to `plan2.md`.
+- Gradually extend the lexer and parser to cover:
+  - P-style ambiguous sequences and the frame-based call resolution algorithm.
+  - Structured control flow (`if`, `while`, `loop`, `match`) and scoping constructs.
+  - Namespaces, `include`, `import`, `use`, `enum`, `struct`, `return`, `break`, and `continue`.
+- Refactor `compiler.rs` so that:
+  - It compiles HIR, not the current minimal `Expr`, into wasm.
+  - It relies on type checking rather than evaluating expressions to validate them.
+  - It preserves and extends the existing builtin and stdlib integration.

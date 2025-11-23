@@ -16,6 +16,5 @@ note.mdは自由に書き換えて構いません
 ファイル名やファイル分割、クラス名や関数名など、適宜リファクタリングを行うこと  
 
 ## test
-cargo test
-cargo test --target wasm32-unknown-unknown --no-run
-
+CARGO_NET_OFFLINE=true cargo test --workspace --locked
+CARGO_NET_OFFLINE=true cargo test -p nepl-web-playground --locked

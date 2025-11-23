@@ -1,109 +1,83 @@
-use std::collections::{BTreeSet, HashSet};
+//! Built-in functions and values for the NEPL core (no_std).
+//!
+//! This module defines host-provided builtins that are visible at
+//! the NEPL language level. It does **not** perform any I/O or wasm
+//! interaction itself; codegen modules are responsible for mapping
+//! these descriptors to actual wasm imports or host calls.
 
-use crate::ast::Expr;
-use wasm_encoder::ValType;
+#![allow(dead_code)]
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+use alloc::vec::Vec;
+
+use crate::types::{ArrowKind, Type};
+
+/// Kind of builtin, used by backends to decide how to lower a call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BuiltinKind {
+    /// Returns the size of a wasm memory page in bytes (typically 65536).
     WasmPageSize,
-    WasiRandom,
-    WasiPrint,
+
+    /// Returns a random 32-bit integer (WASI or host-dependent).
+    WasiRandomI32,
+
+    /// Prints a 32-bit integer to the host's console or log.
+    WasiPrintI32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct BuiltinDescriptor {
-    pub name: String,
-    pub module: String,
-    pub params: Vec<ValType>,
-    pub results: Vec<ValType>,
-    pub kind: BuiltinKind,
-}
-
+/// Metadata about a single builtin symbol.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Builtin {
+pub struct BuiltinDescriptor {
+    /// Name of the builtin at the NEPL level (e.g., `page_size`).
     pub name: &'static str,
-    pub module: &'static str,
-    pub params: &'static [ValType],
-    pub results: &'static [ValType],
+
+    /// Logical module or namespace name (e.g., `platform.wasi`).
+    ///
+    /// This is purely informational for now; name resolution can
+    /// choose whether and how to use it.
+    pub logical_module: &'static str,
+
+    /// The type of the builtin in the NEPL type system.
+    pub ty: Type,
+
+    /// Kind tag used by backends.
     pub kind: BuiltinKind,
 }
 
-const WASM_CORE_BUILTINS: &[Builtin] = &[Builtin {
-    name: "wasm_pagesize",
-    module: "env",
-    params: &[],
-    results: &[ValType::I32],
-    kind: BuiltinKind::WasmPageSize,
-}];
-
-const WASI_BUILTINS: &[Builtin] = &[
-    Builtin {
-        name: "wasi_random",
-        module: "wasi_snapshot_preview1",
-        params: &[],
-        results: &[ValType::I32],
-        kind: BuiltinKind::WasiRandom,
+/// The complete list of builtins known to the core.
+///
+/// New backends and stdlib code should prefer referring to this
+/// table instead of hard-coding builtin names.
+pub const BUILTINS: &[BuiltinDescriptor] = &[
+    BuiltinDescriptor {
+        name: "page_size",
+        logical_module: "platform.wasm_core",
+        ty: Type::impure_function(Vec::new(), Type::I32),
+        kind: BuiltinKind::WasmPageSize,
     },
-    Builtin {
-        name: "wasi_print",
-        module: "wasi_snapshot_preview1",
-        params: &[ValType::I32],
-        results: &[ValType::I32],
-        kind: BuiltinKind::WasiPrint,
+    BuiltinDescriptor {
+        name: "random_i32",
+        logical_module: "platform.wasi",
+        ty: Type::impure_function(Vec::new(), Type::I32),
+        kind: BuiltinKind::WasiRandomI32,
+    },
+    BuiltinDescriptor {
+        name: "print_i32",
+        logical_module: "platform.wasi",
+        ty: Type::impure_function(vec![Type::I32], Type::Unit),
+        kind: BuiltinKind::WasiPrintI32,
     },
 ];
 
-pub fn operator_arity(name: &str) -> Option<usize> {
-    lookup(name).map(|builtin| builtin.params.len())
-}
-
-pub fn lookup(name: &str) -> Option<&'static Builtin> {
-    WASM_CORE_BUILTINS
-        .iter()
-        .chain(WASI_BUILTINS.iter())
-        .find(|builtin| builtin.name == name)
-}
-
-pub fn collect_builtins(expr: &Expr) -> Vec<&'static Builtin> {
-    let mut names = HashSet::new();
-    collect_builtin_names(expr, &mut names);
-
-    let mut ordered = BTreeSet::new();
-    for name in names {
-        if lookup(&name).is_some() {
-            ordered.insert(name);
+/// Look up a builtin by its NEPL-level name.
+///
+/// The search is linear over `BUILTINS` because the table is small.
+/// If performance ever matters, this can be optimized with a more
+/// elaborate indexing structure (still no_std-compatible).
+pub fn find_builtin(name: &str) -> Option<&'static BuiltinDescriptor> {
+    for b in BUILTINS {
+        if b.name == name {
+            return Some(b);
         }
     }
-
-    ordered
-        .into_iter()
-        .filter_map(|name| lookup(&name))
-        .collect()
-}
-
-pub fn to_descriptor(builtin: &Builtin) -> BuiltinDescriptor {
-    BuiltinDescriptor {
-        name: builtin.name.to_string(),
-        module: builtin.module.to_string(),
-        params: builtin.params.to_vec(),
-        results: builtin.results.to_vec(),
-        kind: builtin.kind.clone(),
-    }
-}
-
-fn collect_builtin_names(expr: &Expr, names: &mut HashSet<String>) {
-    match expr {
-        Expr::Number(_) | Expr::String(_) => {}
-        Expr::Vector(values) => {
-            for value in values {
-                collect_builtin_names(value, names);
-            }
-        }
-        Expr::Call { name, args } => {
-            names.insert(name.clone());
-            for arg in args {
-                collect_builtin_names(arg, names);
-            }
-        }
-    }
+    None
 }
