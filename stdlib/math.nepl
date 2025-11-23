@@ -1,0 +1,16 @@
+// Math utilities implemented in NEPL style pseudo-code.
+// These declarations mirror the operators supported by the compiler.
+
+pub namespace math:
+    pub fn add(i32 a, i32 b) -> i32 = add a b
+    pub fn sub(i32 a, i32 b) -> i32 = sub a b
+    pub fn mul(i32 a, i32 b) -> i32 = mul a b
+    pub fn div(i32 a, i32 b) -> i32 = div a b
+    pub fn mod(i32 a, i32 b) -> i32 = mod a b
+    pub fn pow(i32 base, i32 exp) -> i32 = pow base exp
+    pub fn gcd(i32 a, i32 b) -> i32 = gcd a b
+    pub fn lcm(i32 a, i32 b) -> i32 = lcm a b
+    pub fn permutation(i32 n, i32 r) -> i32 = permutation n r
+    pub fn combination(i32 n, i32 r) -> i32 = combination n r
+    pub fn neg(i32 value) -> i32 = neg value
+    pub fn factorial(i32 value) -> i32 = factorial value

@@ -1,0 +1,8 @@
+// Vector helpers using a generic element placeholder.
+
+pub namespace vec:
+    pub fn concat(vec a, vec b) -> vec = concat a b
+    pub fn get(vec values, i32 index) -> any = get values index
+    pub fn push(vec values, any item) -> vec = push values item
+    pub fn len(vec values) -> i32 = len values
+    pub fn pop(vec values) -> any = pop values

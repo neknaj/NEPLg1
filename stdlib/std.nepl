@@ -1,5 +1,15 @@
-// Core standard library placeholder for NEPL.
-// Future commits will populate actual definitions.
-namespace std:
-    // math operations would be defined here
-    // add more modules as language features grow
+// Core standard library for NEPLg1.
+// Namespaces are organized by domain for clarity.
+
+pub namespace std:
+    include "math.nepl"
+    include "logic.nepl"
+    include "bit.nepl"
+    include "string.nepl"
+    include "vec.nepl"
+
+    when (istarget "wasm-core"):
+        include "platform/wasm_core.nepl"
+
+    when (istarget "wasi"):
+        include "platform/wasi.nepl"

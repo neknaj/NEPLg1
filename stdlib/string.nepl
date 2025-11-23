@@ -1,0 +1,8 @@
+// String utilities reflecting the prefix operators in the spec.
+
+pub namespace string:
+    pub fn concat(string lhs, string rhs) -> string = concat lhs rhs
+    pub fn get(string value, i32 index) -> string = get value index
+    pub fn push(string value, string suffix) -> string = push value suffix
+    pub fn len(string value) -> i32 = len value
+    pub fn pop(string value) -> string = pop value
