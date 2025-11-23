@@ -20,6 +20,13 @@ struct Cli {
 
     #[arg(
         long,
+        value_name = "PATH",
+        help = "Path to the standard library root (defaults to bundled stdlib)",
+    )]
+    stdlib: Option<String>,
+
+    #[arg(
+        long,
         value_name = "FORMAT",
         default_value = "wasm",
         help = "Output format: wasm, llvm"
@@ -41,6 +48,12 @@ fn main() -> Result<()> {
 }
 
 fn execute(cli: Cli) -> Result<()> {
+    let stdlib_root = cli
+        .stdlib
+        .as_ref()
+        .map(|path| PathBuf::from(path))
+        .unwrap_or_else(default_stdlib_root);
+
     let source = match cli.input {
         Some(path) => fs::read_to_string(&path)
             .with_context(|| format!("failed to read input file {path}"))?,
@@ -51,7 +64,6 @@ fn execute(cli: Cli) -> Result<()> {
         }
     };
 
-    let stdlib_root = default_stdlib_root();
     match cli.emit.as_str() {
         "wasm" => {
             let artifact = compile_wasm(&source, &stdlib_root)?;
@@ -156,6 +168,51 @@ mod tests {
 
         let ir = fs::read_to_string(&output_path).expect("read ir");
         assert!(ir.contains("define i32 @main"));
+    }
+
+    #[test]
+    fn supports_custom_stdlib_root() {
+        let dir = tempdir().expect("tempdir");
+        let input_path = dir.path().join("input.nepl");
+        fs::write(&input_path, "add 1 1").expect("write input");
+        let output_path = dir.path().join("out.wasm");
+
+        let stdlib_root = dir.path().join("stdlib");
+        std::fs::create_dir_all(&stdlib_root).expect("create stdlib root");
+        std::fs::write(stdlib_root.join("std.nepl"), "namespace std:").expect("write stdlib placeholder");
+
+        Command::cargo_bin("nepl-cli")
+            .expect("binary exists")
+            .arg("--input")
+            .arg(&input_path)
+            .arg("--output")
+            .arg(&output_path)
+            .arg("--stdlib")
+            .arg(&stdlib_root)
+            .assert()
+            .success();
+
+        assert!(output_path.exists(), "wasm output was not created");
+    }
+
+    #[test]
+    fn reports_missing_stdlib_root() {
+        let dir = tempdir().expect("tempdir");
+        let input_path = dir.path().join("input.nepl");
+        fs::write(&input_path, "add 1 1").expect("write input");
+        let output_path = dir.path().join("out.wasm");
+
+        Command::cargo_bin("nepl-cli")
+            .expect("binary exists")
+            .arg("--input")
+            .arg(&input_path)
+            .arg("--output")
+            .arg(&output_path)
+            .arg("--stdlib")
+            .arg(dir.path().join("missing"))
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains("MissingStdlib"));
     }
 
     #[test]

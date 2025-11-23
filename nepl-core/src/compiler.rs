@@ -181,6 +181,7 @@ mod tests {
     use crate::stdlib::default_stdlib_root;
     use std::path::PathBuf;
     use wasmparser::Parser;
+    use tempfile;
 
     #[test]
     fn builds_arithmetic_wasm_module() {
@@ -210,6 +211,29 @@ mod tests {
         let missing_root = PathBuf::from("./path/that/does/not/exist");
         let err = compile_wasm("add 1 2", &missing_root).unwrap_err();
         assert!(matches!(err, CoreError::MissingStdlib(_)));
+    }
+
+    #[test]
+    fn captures_loaded_stdlib_files_in_artifact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let stdlib_root = dir.path();
+        let nested = stdlib_root.join("nested");
+        std::fs::create_dir_all(&nested).expect("create nested dir");
+        std::fs::write(stdlib_root.join("std.nepl"), "namespace std:")
+            .expect("write stdlib root file");
+        std::fs::write(nested.join("math.nepl"), "namespace math:")
+            .expect("write nested stdlib file");
+
+        let artifact = compile_wasm("add 1 2", stdlib_root).expect("compile should succeed");
+        assert_eq!(artifact.stdlib.len(), 2, "expected two stdlib files recorded");
+
+        let paths: Vec<_> = artifact
+            .stdlib
+            .iter()
+            .map(|file| file.path.clone())
+            .collect();
+        assert!(paths.contains(&PathBuf::from("std.nepl")));
+        assert!(paths.contains(&PathBuf::from("nested/math.nepl")));
     }
 
     #[test]
