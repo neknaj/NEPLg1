@@ -7,6 +7,7 @@
 
 use core::fmt;
 
+use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::diagnostic::Diagnostic;

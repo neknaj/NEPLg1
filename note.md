@@ -1,5 +1,9 @@
 # Progress note
 
+- Parser and AST were realigned: added the missing `types` module, boxed recursive AST/HIR fields to break drop cycles, and synchronized parsing structures (use paths, type expressions, patterns, assignments) with the AST shapes.
+- Updated wasm codegen to the current `wasm-encoder` API and ensured helper functions avoid const-evaluation restrictions.
+- Simplified CLI to match the minimal core pipeline (no stdlib/builtins wiring yet) and refreshed its tests to only cover argument parsing while keeping the deploy helper tests intact.
+
 - Updated wasm emission to the current `wasm-encoder` API and reordered sections so exported `main` functions validate correctly with wasmi 0.51.
 - Added explicit stdlib root existence checks and recorded stdlib files in compilation artifacts; missing roots now surface as errors in both core and CLI flows.
 - Reworked CLI tests to exercise the execution pipeline directly without spawning the binary and validated wasm outputs with wasmi.

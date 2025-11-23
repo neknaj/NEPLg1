@@ -9,7 +9,7 @@
 
 #![allow(dead_code)]
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use crate::ast;
