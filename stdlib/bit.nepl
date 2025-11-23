@@ -1,0 +1,9 @@
+// Bitwise helpers matching the primitive operators exposed by the compiler.
+
+pub namespace bit:
+    pub fn bit_and(i32 lhs, i32 rhs) -> i32 = bit_and lhs rhs
+    pub fn bit_or(i32 lhs, i32 rhs) -> i32 = bit_or lhs rhs
+    pub fn bit_xor(i32 lhs, i32 rhs) -> i32 = bit_xor lhs rhs
+    pub fn bit_not(i32 value) -> i32 = bit_not value
+    pub fn bit_shl(i32 lhs, i32 rhs) -> i32 = bit_shl lhs rhs
+    pub fn bit_shr(i32 lhs, i32 rhs) -> i32 = bit_shr lhs rhs

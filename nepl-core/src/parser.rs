@@ -88,8 +88,12 @@ fn desugar_pipe(lhs: Expr, rhs: Expr) -> Result<Expr, CoreError> {
 
 fn operator_arity(name: &str) -> Option<usize> {
     match name {
-        "add" | "sub" | "mul" | "div" => Some(2),
-        "neg" => Some(1),
+        "add" | "sub" | "mul" | "div" | "mod" | "pow" => Some(2),
+        "and" | "or" | "xor" => Some(2),
+        "lt" | "le" | "eq" | "ne" | "gt" | "ge" => Some(2),
+        "bit_and" | "bit_or" | "bit_xor" | "bit_shl" | "bit_shr" => Some(2),
+        "gcd" | "lcm" | "permutation" | "combination" => Some(2),
+        "neg" | "not" | "bit_not" | "factorial" => Some(1),
         _ => None,
     }
 }
@@ -165,5 +169,14 @@ mod tests {
     fn rejects_pipe_without_call_rhs() {
         let err = parse("1 > 2").unwrap_err();
         assert!(matches!(err, CoreError::SemanticError(_)));
+    }
+
+    #[test]
+    fn parses_extended_operators() {
+        let expr = parse("pow 2 3").expect("parse pow");
+        assert!(expr.is_call("pow"));
+
+        let expr = parse("factorial 4").expect("parse factorial");
+        assert!(expr.is_call("factorial"));
     }
 }

@@ -1,0 +1,4 @@
+// Platform-specific bindings for the WASI target.
+
+pub namespace platform:
+    // Placeholder namespace for WASI intrinsics.

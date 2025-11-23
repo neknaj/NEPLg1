@@ -1,0 +1,4 @@
+// Platform-specific bindings for the wasm-core target.
+
+pub namespace platform:
+    // Placeholder namespace for wasm-core intrinsics.

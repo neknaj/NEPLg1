@@ -1,0 +1,13 @@
+// Logical helpers. All results are encoded as 1 for true and 0 for false.
+
+pub namespace logic:
+    pub fn and(i32 lhs, i32 rhs) -> i32 = and lhs rhs
+    pub fn or(i32 lhs, i32 rhs) -> i32 = or lhs rhs
+    pub fn xor(i32 lhs, i32 rhs) -> i32 = xor lhs rhs
+    pub fn not(i32 value) -> i32 = not value
+    pub fn lt(i32 lhs, i32 rhs) -> i32 = lt lhs rhs
+    pub fn le(i32 lhs, i32 rhs) -> i32 = le lhs rhs
+    pub fn eq(i32 lhs, i32 rhs) -> i32 = eq lhs rhs
+    pub fn ne(i32 lhs, i32 rhs) -> i32 = ne lhs rhs
+    pub fn gt(i32 lhs, i32 rhs) -> i32 = gt lhs rhs
+    pub fn ge(i32 lhs, i32 rhs) -> i32 = ge lhs rhs

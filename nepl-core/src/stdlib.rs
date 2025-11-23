@@ -45,4 +45,44 @@ mod tests {
         let files = load_stdlib_files(default_stdlib_root()).expect("stdlib should load");
         assert!(!files.is_empty());
     }
+
+    #[test]
+    fn stdlib_includes_expected_modules() {
+        let files = load_stdlib_files(default_stdlib_root()).expect("stdlib should load");
+        let mut names: Vec<_> = files
+            .iter()
+            .map(|file| file.path.to_string_lossy().to_string())
+            .collect();
+        names.sort();
+
+        assert!(names.contains(&"std.nepl".to_string()));
+        assert!(names.contains(&"math.nepl".to_string()));
+        assert!(names.contains(&"logic.nepl".to_string()));
+        assert!(names.contains(&"bit.nepl".to_string()));
+        assert!(names.contains(&"string.nepl".to_string()));
+        assert!(names.contains(&"vec.nepl".to_string()));
+        assert!(names.contains(&"platform/wasm_core.nepl".to_string()));
+        assert!(names.contains(&"platform/wasi.nepl".to_string()));
+
+        let math_file = files
+            .iter()
+            .find(|file| file.path == std::path::PathBuf::from("math.nepl"))
+            .expect("math module missing");
+        assert!(math_file.contents.contains("permutation"));
+        assert!(math_file.contents.contains("combination"));
+
+        let string_file = files
+            .iter()
+            .find(|file| file.path == std::path::PathBuf::from("string.nepl"))
+            .expect("string module missing");
+        assert!(string_file.contents.contains("concat"));
+        assert!(string_file.contents.contains("len"));
+
+        let vec_file = files
+            .iter()
+            .find(|file| file.path == std::path::PathBuf::from("vec.nepl"))
+            .expect("vec module missing");
+        assert!(vec_file.contents.contains("push"));
+        assert!(vec_file.contents.contains("pop"));
+    }
 }
