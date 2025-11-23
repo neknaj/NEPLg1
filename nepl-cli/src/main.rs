@@ -175,4 +175,25 @@ mod tests {
             .failure()
             .stderr(predicate::str::contains("division by zero"));
     }
+
+    #[test]
+    fn supports_pipe_operator() {
+        let dir = tempdir().expect("tempdir");
+        let input_path = dir.path().join("input.nepl");
+        fs::write(&input_path, "1 > neg > add 2").expect("write input");
+        let output_path = dir.path().join("out.wasm");
+
+        Command::cargo_bin("nepl-cli")
+            .expect("binary exists")
+            .arg("--input")
+            .arg(&input_path)
+            .arg("--output")
+            .arg(&output_path)
+            .arg("--run")
+            .assert()
+            .success()
+            .stdout(predicate::str::contains("Program exited with 1"));
+
+        assert!(output_path.exists(), "wasm output was not created");
+    }
 }

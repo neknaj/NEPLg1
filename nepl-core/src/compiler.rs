@@ -78,11 +78,24 @@ fn emit_expression(expr: &Expr, function: &mut Function) -> Result<(), CoreError
                 emit_expression(arg, function)?;
             }
             match name.as_str() {
-                "add" => function.instruction(&Instruction::I32Add),
-                "sub" => function.instruction(&Instruction::I32Sub),
-                "mul" => function.instruction(&Instruction::I32Mul),
-                "div" => function.instruction(&Instruction::I32DivS),
+                "add" => {
+                    expect_arity(name, args.len(), 2)?;
+                    function.instruction(&Instruction::I32Add)
+                }
+                "sub" => {
+                    expect_arity(name, args.len(), 2)?;
+                    function.instruction(&Instruction::I32Sub)
+                }
+                "mul" => {
+                    expect_arity(name, args.len(), 2)?;
+                    function.instruction(&Instruction::I32Mul)
+                }
+                "div" => {
+                    expect_arity(name, args.len(), 2)?;
+                    function.instruction(&Instruction::I32DivS)
+                }
                 "neg" => {
+                    expect_arity(name, args.len(), 1)?;
                     function.instruction(&Instruction::I32Const(-1));
                     function.instruction(&Instruction::I32Mul);
                 }
@@ -107,25 +120,30 @@ fn evaluate(expr: &Expr) -> Result<i32, CoreError> {
         Expr::Number(value) => Ok(*value),
         Expr::Call { name, args } => match name.as_str() {
             "neg" => {
+                expect_arity(name, args.len(), 1)?;
                 let value = evaluate(&args[0])?;
                 Ok(value.wrapping_neg())
             }
             "add" => {
+                expect_arity(name, args.len(), 2)?;
                 let left = evaluate(&args[0])?;
                 let right = evaluate(&args[1])?;
                 Ok(left.wrapping_add(right))
             }
             "sub" => {
+                expect_arity(name, args.len(), 2)?;
                 let left = evaluate(&args[0])?;
                 let right = evaluate(&args[1])?;
                 Ok(left.wrapping_sub(right))
             }
             "mul" => {
+                expect_arity(name, args.len(), 2)?;
                 let left = evaluate(&args[0])?;
                 let right = evaluate(&args[1])?;
                 Ok(left.wrapping_mul(right))
             }
             "div" => {
+                expect_arity(name, args.len(), 2)?;
                 let left = evaluate(&args[0])?;
                 let right = evaluate(&args[1])?;
                 if right == 0 {
@@ -140,6 +158,15 @@ fn evaluate(expr: &Expr) -> Result<i32, CoreError> {
             ))),
         },
     }
+}
+
+fn expect_arity(name: &str, given: usize, expected: usize) -> Result<(), CoreError> {
+    if given == expected {
+        return Ok(());
+    }
+    Err(CoreError::SemanticError(format!(
+        "operator '{name}' expects {expected} arguments but received {given}",
+    )))
 }
 
 #[cfg(test)]
@@ -176,5 +203,11 @@ mod tests {
     fn evaluates_expression() {
         let expr = parse("add 1 (mul 2 3)").expect("parse");
         assert_eq!(evaluate(&expr).unwrap(), 7);
+    }
+
+    #[test]
+    fn evaluates_pipe_expression() {
+        let expr = parse("1 > neg > add 2").expect("parse");
+        assert_eq!(evaluate(&expr).unwrap(), 1);
     }
 }

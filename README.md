@@ -26,6 +26,8 @@ The CLI accepts input from stdin when `--input` is omitted.
 
 The current implementation supports prefix arithmetic expressions built from the operators `add`, `sub`, `mul`, `div`, and `neg`, using integer literals. Parentheses can be used to group expressions.
 
+The pipe operator `>` is available as a convenience for threading the previous result into the next function call. For example, `1 > neg > add 2` desugars to `add (neg 1) 2`.
+
 ## Standard library layout
 Place `.nepl` files under `./stdlib`. The core crate loads every `.nepl` file recursively, making them available to compilation routines.
 
