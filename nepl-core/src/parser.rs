@@ -1,4 +1,5 @@
 use crate::ast::Expr;
+use crate::builtins;
 use crate::error::CoreError;
 use crate::lexer::{Token, TokenKind, lex};
 
@@ -94,7 +95,7 @@ fn operator_arity(name: &str) -> Option<usize> {
         "bit_and" | "bit_or" | "bit_xor" | "bit_shl" | "bit_shr" => Some(2),
         "gcd" | "lcm" | "permutation" | "combination" => Some(2),
         "neg" | "not" | "bit_not" | "factorial" => Some(1),
-        _ => None,
+        _ => builtins::operator_arity(name),
     }
 }
 
@@ -178,5 +179,14 @@ mod tests {
 
         let expr = parse("factorial 4").expect("parse factorial");
         assert!(expr.is_call("factorial"));
+    }
+
+    #[test]
+    fn parses_builtins() {
+        let expr = parse("wasm_pagesize").expect("parse wasm builtin");
+        assert!(expr.is_call("wasm_pagesize"));
+
+        let expr = parse("wasi_print 1").expect("parse wasi builtin");
+        assert!(expr.is_call("wasi_print"));
     }
 }

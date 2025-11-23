@@ -1,6 +1,7 @@
 //! Core utilities for the NEPL language toolchain.
 
 pub mod ast;
+pub mod builtins;
 pub mod compiler;
 pub mod error;
 pub mod lexer;
