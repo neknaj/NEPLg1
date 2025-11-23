@@ -1,11 +1,13 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use wasm_encoder::{
-    CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
-    TypeSection, ValType,
+    CodeSection, EntityType, ExportKind, ExportSection, Function, FunctionSection, ImportSection,
+    Instruction, Module, TypeSection, ValType,
 };
 
 use crate::ast::Expr;
+use crate::builtins::{self, BuiltinDescriptor};
 use crate::error::CoreError;
 use crate::parser::parse;
 use crate::stdlib::{StdlibFile, load_stdlib_files};
@@ -14,6 +16,7 @@ use crate::stdlib::{StdlibFile, load_stdlib_files};
 pub struct CompilationArtifact {
     pub wasm: Vec<u8>,
     pub stdlib: Vec<StdlibFile>,
+    pub builtins: Vec<BuiltinDescriptor>,
 }
 
 pub fn compile_wasm(
@@ -27,23 +30,55 @@ pub fn compile_wasm(
     let expr = parse(source)?;
     validate(&expr)?;
 
+    let used_builtins = builtins::collect_builtins(&expr);
+
     let mut module = Module::new();
     let mut types = TypeSection::new();
-    let type_index = types.len();
+    let mut builtin_type_indices = HashMap::new();
+    let mut builtin_function_indices = HashMap::new();
+
+    for builtin in &used_builtins {
+        let type_index = types.len();
+        types.ty().function(
+            builtin.params.iter().copied(),
+            builtin.results.iter().copied(),
+        );
+        builtin_type_indices.insert(builtin.name.to_string(), type_index);
+    }
+
+    let main_type_index = types.len();
     types.ty().function([], [ValType::I32]);
+
     module.section(&types);
 
+    let mut imports = ImportSection::new();
+    for (idx, builtin) in used_builtins.iter().enumerate() {
+        let type_index = *builtin_type_indices
+            .get(builtin.name)
+            .expect("builtin type index present");
+        imports.import(
+            builtin.module,
+            builtin.name,
+            EntityType::Function(type_index as u32),
+        );
+        builtin_function_indices.insert(builtin.name.to_string(), idx as u32);
+    }
+    if !used_builtins.is_empty() {
+        module.section(&imports);
+    }
+
     let mut functions = FunctionSection::new();
-    functions.function(type_index);
+    functions.function(main_type_index);
     module.section(&functions);
 
     let mut exports = ExportSection::new();
-    exports.export("main", ExportKind::Func, 0);
+    let main_index = used_builtins.len() as u32;
+    exports.export("main", ExportKind::Func, main_index);
     module.section(&exports);
 
     let mut code = CodeSection::new();
     let mut function = Function::new(vec![]);
-    emit_expression(&expr, &mut function)?;
+    emit_expression(&expr, &mut function, &builtin_function_indices)?;
     function.instruction(&Instruction::End);
     code.function(&function);
     module.section(&code);
@@ -51,6 +86,10 @@ pub fn compile_wasm(
     Ok(CompilationArtifact {
         wasm: module.finish(),
         stdlib,
+        builtins: used_builtins
+            .iter()
+            .map(|builtin| builtins::to_descriptor(builtin))
+            .collect(),
     })
 }
 
@@ -71,9 +110,111 @@ pub fn emit_llvm_ir(source: &str, stdlib_root: impl AsRef<Path>) -> Result<Strin
     Ok(format!("{}{}", header, lines))
 }
 
-fn emit_expression(expr: &Expr, function: &mut Function) -> Result<(), CoreError> {
-    let value = evaluate(expr)?;
-    function.instruction(&Instruction::I32Const(value));
+fn emit_expression(
+    expr: &Expr,
+    function: &mut Function,
+    builtin_indices: &HashMap<String, u32>,
+) -> Result<(), CoreError> {
+    match expr {
+        Expr::Number(value) => {
+            function.instruction(&Instruction::I32Const(*value));
+        }
+        Expr::Call { name, args } => match name.as_str() {
+            "add" => emit_binary(args, function, builtin_indices, Instruction::I32Add)?,
+            "sub" => emit_binary(args, function, builtin_indices, Instruction::I32Sub)?,
+            "mul" => emit_binary(args, function, builtin_indices, Instruction::I32Mul)?,
+            "div" => emit_binary(args, function, builtin_indices, Instruction::I32DivS)?,
+            "mod" => emit_binary(args, function, builtin_indices, Instruction::I32RemS)?,
+            "neg" => {
+                function.instruction(&Instruction::I32Const(0));
+                emit_expression(&args[0], function, builtin_indices)?;
+                function.instruction(&Instruction::I32Sub);
+            }
+            "and" => emit_logic(args, function, builtin_indices, Instruction::I32And)?,
+            "or" => emit_logic(args, function, builtin_indices, Instruction::I32Or)?,
+            "xor" => emit_logic(args, function, builtin_indices, Instruction::I32Xor)?,
+            "not" => {
+                emit_expression(&args[0], function, builtin_indices)?;
+                function.instruction(&Instruction::I32Eqz);
+                function.instruction(&Instruction::I32Const(1));
+                function.instruction(&Instruction::I32And);
+            }
+            "lt" => emit_compare(args, function, builtin_indices, Instruction::I32LtS)?,
+            "le" => emit_compare(args, function, builtin_indices, Instruction::I32LeS)?,
+            "eq" => emit_compare(args, function, builtin_indices, Instruction::I32Eq)?,
+            "ne" => emit_compare(args, function, builtin_indices, Instruction::I32Ne)?,
+            "gt" => emit_compare(args, function, builtin_indices, Instruction::I32GtS)?,
+            "ge" => emit_compare(args, function, builtin_indices, Instruction::I32GeS)?,
+            "bit_and" => emit_binary(args, function, builtin_indices, Instruction::I32And)?,
+            "bit_or" => emit_binary(args, function, builtin_indices, Instruction::I32Or)?,
+            "bit_xor" => emit_binary(args, function, builtin_indices, Instruction::I32Xor)?,
+            "bit_not" => {
+                function.instruction(&Instruction::I32Const(-1));
+                emit_expression(&args[0], function, builtin_indices)?;
+                function.instruction(&Instruction::I32Xor);
+            }
+            "bit_shl" => emit_binary(args, function, builtin_indices, Instruction::I32Shl)?,
+            "bit_shr" => emit_binary(args, function, builtin_indices, Instruction::I32ShrS)?,
+            builtin_name if builtin_indices.contains_key(builtin_name) => {
+                for arg in args {
+                    emit_expression(arg, function, builtin_indices)?;
+                }
+                let index = *builtin_indices.get(builtin_name).expect("index present");
+                function.instruction(&Instruction::Call(index));
+            }
+            _ => {
+                let value = evaluate(expr)?;
+                function.instruction(&Instruction::I32Const(value));
+            }
+        },
+    }
+    Ok(())
+}
+
+fn emit_binary(
+    args: &[Expr],
+    function: &mut Function,
+    builtin_indices: &HashMap<String, u32>,
+    op: Instruction,
+) -> Result<(), CoreError> {
+    emit_expression(&args[0], function, builtin_indices)?;
+    emit_expression(&args[1], function, builtin_indices)?;
+    function.instruction(&op);
+    Ok(())
+}
+
+fn emit_logic(
+    args: &[Expr],
+    function: &mut Function,
+    builtin_indices: &HashMap<String, u32>,
+    op: Instruction,
+) -> Result<(), CoreError> {
+    emit_truthy(&args[0], function, builtin_indices)?;
+    emit_truthy(&args[1], function, builtin_indices)?;
+    function.instruction(&op);
+    Ok(())
+}
+
+fn emit_compare(
+    args: &[Expr],
+    function: &mut Function,
+    builtin_indices: &HashMap<String, u32>,
+    op: Instruction,
+) -> Result<(), CoreError> {
+    emit_expression(&args[0], function, builtin_indices)?;
+    emit_expression(&args[1], function, builtin_indices)?;
+    function.instruction(&op);
+    Ok(())
+}
+
+fn emit_truthy(
+    expr: &Expr,
+    function: &mut Function,
+    builtin_indices: &HashMap<String, u32>,
+) -> Result<(), CoreError> {
+    emit_expression(expr, function, builtin_indices)?;
+    function.instruction(&Instruction::I32Const(0));
+    function.instruction(&Instruction::I32Ne);
     Ok(())
 }
 
@@ -205,6 +346,19 @@ fn evaluate(expr: &Expr) -> Result<i32, CoreError> {
                 let left = evaluate(&args[0])?;
                 let right = evaluate(&args[1])?;
                 Ok(((left as u32).wrapping_shr(right as u32)) as i32)
+            }
+            "wasm_pagesize" => {
+                expect_arity(name, args.len(), 0)?;
+                Ok(65536)
+            }
+            "wasi_random" => {
+                expect_arity(name, args.len(), 0)?;
+                Ok(4)
+            }
+            "wasi_print" => {
+                expect_arity(name, args.len(), 1)?;
+                let value = evaluate(&args[0])?;
+                Ok(value)
             }
             "gcd" => {
                 expect_arity(name, args.len(), 2)?;
@@ -373,6 +527,75 @@ mod tests {
     fn emits_llvm_ir_with_calculated_value() {
         let ir = emit_llvm_ir("sub 10 7", default_stdlib_root()).expect("emit should succeed");
         assert!(ir.contains("ret i32 3"));
+    }
+
+    #[test]
+    fn records_and_executes_wasm_builtin() {
+        let artifact =
+            compile_wasm("wasm_pagesize", default_stdlib_root()).expect("compile should succeed");
+        assert_eq!(artifact.builtins.len(), 1);
+        let engine = wasmi::Engine::default();
+        let module = wasmi::Module::new(&engine, &artifact.wasm).expect("module");
+        let mut linker = wasmi::Linker::new(&engine);
+        linker
+            .func_wrap("env", "wasm_pagesize", || -> i32 { 4096 })
+            .expect("link builtin");
+        let mut store = wasmi::Store::new(&engine, ());
+        let instance = linker
+            .instantiate_and_start(&mut store, &module)
+            .expect("instantiate");
+        let main = instance
+            .get_typed_func::<(), i32>(&store, "main")
+            .expect("typed func");
+        let result = main.call(&mut store, ()).expect("execute main");
+        assert_eq!(result, 4096);
+    }
+
+    #[test]
+    fn records_and_executes_wasi_builtins() {
+        let artifact = compile_wasm("wasi_print (wasi_random)", default_stdlib_root())
+            .expect("compile should succeed");
+        assert_eq!(artifact.builtins.len(), 2);
+
+        #[derive(Default)]
+        struct HostState {
+            log: Vec<i32>,
+        }
+
+        let engine = wasmi::Engine::default();
+        let module = wasmi::Module::new(&engine, &artifact.wasm).expect("module");
+        let mut linker = wasmi::Linker::new(&engine);
+        linker
+            .func_wrap(
+                "wasi_snapshot_preview1",
+                "wasi_random",
+                |mut caller: wasmi::Caller<'_, HostState>| -> i32 {
+                    caller.data_mut().log.push(99);
+                    99
+                },
+            )
+            .expect("link random");
+        linker
+            .func_wrap(
+                "wasi_snapshot_preview1",
+                "wasi_print",
+                |mut caller: wasmi::Caller<'_, HostState>, value: i32| -> i32 {
+                    caller.data_mut().log.push(value);
+                    value
+                },
+            )
+            .expect("link print");
+
+        let mut store = wasmi::Store::new(&engine, HostState::default());
+        let instance = linker
+            .instantiate_and_start(&mut store, &module)
+            .expect("instantiate");
+        let main = instance
+            .get_typed_func::<(), i32>(&store, "main")
+            .expect("typed func");
+        let result = main.call(&mut store, ()).expect("execute main");
+        assert_eq!(result, 99);
+        assert_eq!(store.data().log, vec![99, 99]);
     }
 
     #[test]

@@ -84,5 +84,18 @@ mod tests {
             .expect("vec module missing");
         assert!(vec_file.contents.contains("push"));
         assert!(vec_file.contents.contains("pop"));
+
+        let wasm_platform = files
+            .iter()
+            .find(|file| file.path == std::path::PathBuf::from("platform/wasm_core.nepl"))
+            .expect("wasm platform module missing");
+        assert!(wasm_platform.contents.contains("page_size"));
+
+        let wasi_platform = files
+            .iter()
+            .find(|file| file.path == std::path::PathBuf::from("platform/wasi.nepl"))
+            .expect("wasi platform module missing");
+        assert!(wasi_platform.contents.contains("random_i32"));
+        assert!(wasi_platform.contents.contains("print_i32"));
     }
 }

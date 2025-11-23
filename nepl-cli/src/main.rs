@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use nepl_core::builtins::BuiltinKind;
 use nepl_core::stdlib::default_stdlib_root;
 use nepl_core::{CompilationArtifact, compile_wasm, emit_llvm_ir};
 use wasmi::{Engine, Linker, Module, Store};
@@ -104,7 +105,8 @@ fn write_output(path: &str, bytes: &[u8]) -> Result<()> {
 fn run_wasm(artifact: &CompilationArtifact) -> Result<i32> {
     let engine = Engine::default();
     let module = Module::new(&engine, &artifact.wasm).context("failed to compile wasm artifact")?;
-    let linker = Linker::new(&engine);
+    let mut linker = Linker::new(&engine);
+    link_builtins(&mut linker, &artifact.builtins)?;
     let mut store = Store::new(&engine, ());
     let instance = linker
         .instantiate_and_start(&mut store, &module)
@@ -116,6 +118,43 @@ fn run_wasm(artifact: &CompilationArtifact) -> Result<i32> {
         .call(&mut store, ())
         .context("failed to execute main")?;
     Ok(result)
+}
+
+fn link_builtins(
+    linker: &mut Linker<()>,
+    builtins: &[nepl_core::builtins::BuiltinDescriptor],
+) -> Result<()> {
+    for builtin in builtins {
+        match builtin.kind {
+            BuiltinKind::WasmPageSize => {
+                linker
+                    .func_wrap(builtin.module.as_str(), builtin.name.as_str(), || -> i32 {
+                        65536
+                    })
+                    .with_context(|| format!("failed to link builtin {}", builtin.name))?;
+            }
+            BuiltinKind::WasiRandom => {
+                linker
+                    .func_wrap(builtin.module.as_str(), builtin.name.as_str(), || -> i32 {
+                        4
+                    })
+                    .with_context(|| format!("failed to link builtin {}", builtin.name))?;
+            }
+            BuiltinKind::WasiPrint => {
+                linker
+                    .func_wrap(
+                        builtin.module.as_str(),
+                        builtin.name.as_str(),
+                        |value: i32| -> i32 {
+                            println!("{value}");
+                            value
+                        },
+                    )
+                    .with_context(|| format!("failed to link builtin {}", builtin.name))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -276,5 +315,47 @@ mod tests {
             .get_typed_func::<(), i32>(&store, "main")
             .expect("typed func");
         assert_eq!(main.call(&mut store, ()).expect("run"), 1);
+    }
+
+    #[test]
+    fn links_wasi_builtins_when_running() {
+        let dir = tempdir().expect("tempdir");
+        let input_path = dir.path().join("input.nepl");
+        fs::write(&input_path, "wasi_print (wasi_random)").expect("write input");
+        let output_path = dir.path().join("out.wasm");
+
+        let cli = Cli {
+            input: Some(input_path.to_string_lossy().to_string()),
+            output: output_path.to_string_lossy().to_string(),
+            stdlib: None,
+            emit: "wasm".to_string(),
+            run: true,
+            lib: false,
+        };
+
+        execute(cli).expect("cli should succeed");
+
+        let bytes = fs::read(&output_path).expect("wasm output readable");
+        let engine = Engine::default();
+        let module = Module::new(&engine, bytes).expect("module");
+        let mut linker = Linker::new(&engine);
+        linker
+            .func_wrap("wasi_snapshot_preview1", "wasi_random", || -> i32 { 123 })
+            .expect("link random");
+        linker
+            .func_wrap(
+                "wasi_snapshot_preview1",
+                "wasi_print",
+                |value: i32| -> i32 { value },
+            )
+            .expect("link print");
+        let mut store = Store::new(&engine, ());
+        let instance = linker
+            .instantiate_and_start(&mut store, &module)
+            .expect("instantiate");
+        let main = instance
+            .get_typed_func::<(), i32>(&store, "main")
+            .expect("typed func");
+        assert_eq!(main.call(&mut store, ()).expect("run"), 123);
     }
 }

@@ -1,4 +1,5 @@
 // Platform-specific bindings for the wasm-core target.
 
 pub namespace platform:
-    // Placeholder namespace for wasm-core intrinsics.
+    // Report the page size in bytes as defined by WebAssembly memories.
+    pub fn page_size() -> i32 = wasm_pagesize

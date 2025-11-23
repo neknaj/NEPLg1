@@ -1,4 +1,8 @@
 // Platform-specific bindings for the WASI target.
 
 pub namespace platform:
-    // Placeholder namespace for WASI intrinsics.
+    // Produce a deterministic pseudo-random number provided by the host runtime.
+    pub fn random_i32() -> i32 = wasi_random
+
+    // Print an integer via the host and return the printed value for chaining.
+    pub fn print_i32(i32 value) -> i32 = wasi_print value
