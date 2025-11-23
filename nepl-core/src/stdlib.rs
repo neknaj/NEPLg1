@@ -15,6 +15,12 @@ pub fn default_stdlib_root() -> PathBuf {
 
 pub fn load_stdlib_files(root: impl AsRef<Path>) -> Result<Vec<StdlibFile>, std::io::Error> {
     let root = root.as_ref();
+    if !root.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("stdlib root {root:?} not found"),
+        ));
+    }
     let mut files = Vec::new();
     for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
         let path = entry.path();

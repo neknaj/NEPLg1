@@ -10,4 +10,6 @@ wasm-encoder.workspace = true
 walkdir.workspace = true
 
 [dev-dependencies]
+wasmi.workspace = true
+tempfile.workspace = true
 wasmparser = "0.241"
