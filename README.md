@@ -11,16 +11,22 @@ parses, and validates a small arithmetic-focused subset of NEPL, plus a command-
 Compile a source file to WebAssembly and run it:
 
 ```bash
-cargo run -p nepl-cli -- --input examples/hello.nepl --output target/hello.wasm --run
+cargo run -p nepl-cli -- --input examples/io_pipeline.nepl --output target/io_pipeline.wasm --run
 ```
 
 Emit LLVM IR instead:
 
 ```bash
-cargo run -p nepl-cli -- --input examples/hello.nepl --output target/hello.ll --emit llvm
+cargo run -p nepl-cli -- --input examples/io_pipeline.nepl --output target/io_pipeline.ll --emit llvm
 ```
 
 The CLI accepts input from stdin when `--input` is omitted.
+
+### Examples
+
+Practical examples live under `examples/`:
+
+- `io_pipeline.nepl` threads together arithmetic, vector access, string utilities, and standard I/O built-ins. It prints the length of a concatenated string and a computed value based on a host-provided random number before returning their sum.
 
 ### Supported expression forms
 

@@ -509,4 +509,52 @@ mod tests {
         assert_eq!(result, 2_048 + 7);
         assert_eq!(handler.printed, vec![7]);
     }
+
+    #[test]
+    fn example_with_standard_io_compiles_and_runs() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let example_path = manifest_dir
+            .parent()
+            .expect("workspace root present")
+            .join("examples/io_pipeline.nepl");
+        let source = fs::read_to_string(&example_path).expect("example source readable");
+
+        let artifact = compile_wasm(&source, default_stdlib_root())
+            .expect("example should compile to wasm");
+
+        #[derive(Default)]
+        struct RecordingHost {
+            printed: Vec<i32>,
+            random: i32,
+            pagesize: i32,
+        }
+
+        impl BuiltinHandler for RecordingHost {
+            fn wasm_pagesize(&mut self) -> i32 {
+                self.pagesize
+            }
+
+            fn wasi_random(&mut self) -> i32 {
+                self.random
+            }
+
+            fn wasi_print(&mut self, value: i32) -> i32 {
+                self.printed.push(value);
+                value
+            }
+        }
+
+        let (result, host) = run_wasm_with_handler(
+            &artifact,
+            RecordingHost {
+                printed: Vec::new(),
+                random: 5,
+                pagesize: 64 * 1024,
+            },
+        )
+        .expect("example should run through wasmi");
+
+        assert_eq!(host.printed, vec![8, 25]);
+        assert_eq!(result, 33);
+    }
 }
