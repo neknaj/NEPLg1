@@ -1,8 +1,8 @@
 # plan.md, starting_detail.md
-plan.md,doc/starting_detail.mdに作りたいものの説明が載っているので必ず確認してください  
+plan.md,plan2.md,doc/starting_detail.mdに作りたいものの説明が載っているので必ず確認してください  
 人が書き換えるので変更しないでください  
 変更が必要だと考える場合はnote.mdに記述してください  
-# plan.md
+# note.md
 note.mdは自由に書き換えて構いません  
 現在の実装状況、plan.mdと実装との差異などについてかならず記述し、更新してください  
 

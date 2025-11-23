@@ -1,68 +1,47 @@
-# Neknaj Expression Prefix Language (NEPL) — Starting Detail
+# Neknaj Expression Prefix Language - General-purpose 1 の実装方針 / 仕様（starting_detail）
 
-この文書は、Neknaj Expression Prefix Language（以下 NEPL）の **現時点で合意済みの仕様** を 1 ファイルにまとめた「スタート地点の仕様書」です。
+ここに書いてあることは実装前に作成した実装方針です。
+実装にあわせて、`doc/` に体系的に分かりやすく纏める必要があります。
 
-将来 `doc/` 以下に細かく分割する前の、**単一ソース・オブ・トゥルース**として扱います。
-
-* ファイル拡張子: `.nepl`
-* 本文中では、一部に英語の専門用語を用い、その最初の登場時に形式化された表記で示します。
+このファイルは、「現時点の実装に合わせて更新された仕様の起点」として扱います。
 
 ---
 
-# 1. 言語の基本方針
+## 概要
 
-## 1.1 P-style（前置記法）
+### 基本的な記法
 
-**Prefix notation** (`/ˈpriː.fɪks noʊˈteɪ.ʃən/`, 前置記法 [プレフィックスきほう]) をベースとした式指向言語。
+基本的に全てポーランド記法 / 前置記法で書ける。
+これを **P-style** (Polish-style / Prefix-style) と呼ぶ。
 
 ```ebnf
 <expr> = <prefix> { <expr> }
 ```
 
-* すべての式は「**先頭に演算子（関数）→ 後ろに引数が連続**」という形で書く。
-* `()` で囲って優先順位・グルーピングを明示できる：
+`<expr>` は `()` で囲うことができ、これによって優先度を明示できる。
 
 ```ebnf
 <parened_expr> = "(" <expr> ")"
 <expr>         = <parened_expr>
 ```
 
-構文解析（パーサ）は **P-style の「並び」だけ決めて、木構造は型推論フェーズで決定** する。
-
-## 1.2 式指向
-
-* 制御構造（if, loop, match）、ブロック、変数束縛、include/import/namespace など、ほぼすべてが式 `<expr>`。
-* 式は必ず **型** を持ち、**複数の値を同時に返さない**（タプルで代用）。
-
-## 1.3 処理系パイプライン
-
-**Compiler pipeline** (`/kəmˈpaɪ.lɚ ˈpaɪp.laɪn/`, 処理系パイプライン) は次の段階を想定：
-
-1. **Lexical analysis** (`/ˈlek.sɪ.kəl əˈnæl.ə.sɪs/`, 字句解析)
-2. **Parsing** (`/ˈpɑːr.sɪŋ/`, 構文解析)
-3. **Name resolution & Type inference** (`/neɪm ˌrez.əˈluː.ʃən/`, 名前解決; `/taɪp ˈɪn.fər.əns/`, 型推論)
-4. その他チェック（未使用警告など）
-5. Codegen（初期ターゲットは WebAssembly）
-
-重要なポイント:
-
-* 構文解析では **P-style の「どこまでが 1 つの関数呼び出しか」「どの識別子が関数か」などは決めない**。
-* 型推論フェーズで、**P-style の木構造決定 + オーバーロード解決** を一気に行う。
-
-## 1.4 実装言語とターゲット
-
-* 実装言語: Rust
-* `core` 部は `no_std` で実装する。
-* CLI / WebPlayground（Wasm）など複数のフロントエンドを想定。
-* ファイル IO などプラットフォーム依存部は抽象化した API 経由で扱う。
+構文解析の段階では「P-style の並び」だけを決め、どこまでが 1 つの関数呼び出しか等は決めない。
+**型推論**フェーズで、P-style の列から最終的な呼び出し構造を決定する。
 
 ---
 
-# 2. 構文と主要構成要素
+## 式指向
 
-## 2.1 演算子（算術・論理・文字列・ベクタ）
+様々なものを式 `<expr>` として扱う。
+制御構造・ブロック・変数束縛・名前空間・マルチファイル構成など、基本的に全て式。
 
-演算子はすべて **通常の関数として標準ライブラリから提供** される。
+以下、主な構成要素ごとに仕様を記述する。
+
+---
+
+## 演算子
+
+### 算術演算子・文字列・ベクタ
 
 ```ebnf
 <math_bin_operator> =
@@ -89,11 +68,14 @@
 <expr>        = <un_operator> <expr>
 ```
 
-コンパイラ的には `add`, `sub` などは単なる名前であり、実装は標準ライブラリ側（`std.math`）が担う。
+これらの演算子は **std lib から関数として提供**する。
+コンパイラから見ると単なる関数名であり、特別扱いはしない。
 
-## 2.2 パイプ演算子 `>`
+---
 
-**Pipe operator**（`/paɪp ˈɑː.pəˌreɪ.t̬ɚ/`, パイプ演算子）は糖衣構文：
+### パイプ演算子 `>`
+
+構文 `LHS > RHS` は、「LHS の結果を RHS の関数の第 1 引数として注入する」糖衣構文である。
 
 ```ebnf
 <expr>       = <pipe_chain>
@@ -103,66 +85,246 @@
 <pipe_term>  = <expr_without_pipe>
 ```
 
-* 左結合: `A > B > C` は `(A > B) > C` と等価。
-* 優先順位: P-style の関数適用よりも低い。
+`<expr_without_pipe>` は、`>` を含まない通常の式（関数適用・if 式・loop 式・while 式・match 式・ブロック式など）を総称する抽象的な非終端とみなす。
 
-  * `f x > g` は `(f x) > g` と解釈。
+* 結合性: 左結合 (`A > B > C` は `(A > B) > C` と等価)
+* 優先順位: P-style の関数適用よりも低い
 
-**展開規則**:
+  * `f x > g` は `(f x) > g` として解釈される
 
-* `RHS` が `F A1 A2 ... An` なら `LHS > RHS` は `F LHS A1 A2 ... An`。
-* `RHS` が `F` だけなら `LHS > F` は `F LHS`。
+糖衣構文としての展開規則:
 
-P-style の長い列の中に `>` がある場合、**直近の完結した式を LHS として切り出す**。
+* `RHS` が `F A1 A2 ... An` という式のとき、`LHS > RHS` は `F LHS A1 A2 ... An` と等価
+* `RHS` が `F` のとき、`LHS > F` は `F LHS` と等価
 
-## 2.3 関数リテラル & 関数呼び出し
+P-style の連鎖の中に `>` がある場合、`>` の左側のトークン列から、**直近の完結した式だけ** を LHS として切り出す。
 
-### 2.3.1 関数リテラル
+---
+
+## 関数
+
+### 関数リテラル式
+
+#### 構文（更新）
 
 ```ebnf
-<func_literal_expr> = "|" <func_literal_args> "|" ( "->" | "*>" ) <type> <expr>
-<func_literal_args> = { <func_literal_arg> [ "," ] }
-<func_literal_arg>  = <type> <ident>
-<expr>              = <func_literal_expr>
+<func_literal_expr> =
+    "|" <func_literal_args> "|" ( "->" | "*>" ) <type> <expr>
+
+<func_literal_args> =
+    { <func_literal_arg> [ "," ] }
+
+<func_literal_arg>  =
+    <type> [ "mut" ] <ident>
+
+<expr> = <func_literal_expr>
 ```
 
-* `|a: Int, b: Int|->Int body` のように書く。
-* `->` は通常の関数、`*>` は「純粋関数」として扱う予定（実装詳細は後続 doc）。
-* 本体 `<expr>` の型は宣言された戻り値の型と一致しなければならない。
+* 一般形
 
-### 2.3.2 関数呼び出し
+  * `|i32 a, i32 b|->i32 add a b`
+  * `|i32 mut x, i32 y|->Unit ...`
+  * `|i32 x|*>i32 ...`
+* 「**型 → 変数名**」の順で書く。
+* `mut` が付いた引数は **mutable 引数** であり、呼び出し元の `let mut` 変数などを **in-out** で受け取る。
+
+#### `->` と `*>`（非純粋関数と純粋関数）
+
+* `->` : **Impure function**（非純粋関数）
+* `*>` : **Pure function**（純粋関数）
+
+純粋関数 `*>` に対する制約（ここが元の仕様から拡張された部分）:
+
+1. 引数リスト内に `mut` を含めてはならない。
+
+   * 例: `|i32 mut x|*>i32 ...` は **コンパイルエラー**。
+2. 本体内で `set` できるのは、**その関数の中で `let mut` されたローカル変数**（およびそのフィールド）に限る。
+
+   * 外側スコープ（クロージャキャプチャ等）の変数を `set` することはできない。
+3. 本体内から呼び出せる関数は、**他の純粋関数（`*>` 型）だけ**。
+
+   * 非純粋関数 `->` 型の値を呼び出すと **コンパイルエラー**。
+
+非純粋関数 `->` では、従来どおり自由度が高い：
+
+* `mut` 引数を使える。
+* `set` によって
+
+  * `mut` 引数
+  * 外側スコープの `let mut` 変数
+    を更新できる（後述の `set` のルールに従う）。
+* 純粋関数 `*>` も非純粋関数 `->` も両方呼び出せる。
+
+#### `mut` 引数の意味論（in-out 引数）
+
+`|i32 mut x|->Unit ...` のような **mutable 引数** は、呼び出し元の変数を **in-out** で扱う。
+
+* 呼び出し側では、`mut` 引数には **代入可能な式（assignable）** かつ根本が `let mut` であるものだけが渡せる（後述の `assignable`）。
+* 関数本体から見ると、`x` は普通の `let mut x` とほぼ同じように `set x ...` で書き換え可能だが、その結果は呼び出し元の変数に反映される。
+
+※厳密な型規則・別名禁止などの詳細は型システム実装時に詰める。
+
+---
+
+### 関数呼び出し式
 
 ```ebnf
 <func_call_expr> = <expr> { <expr> }
 <expr>           = <func_call_expr>
 ```
 
-* 先頭の `<expr>` が関数値、それ以降の `<expr>` が引数。
-* 先頭は関数リテラルでも `ident` でも `if` 式などの結果でもよい。型が関数であれば OK。
+* 一つ目の `<expr>` が **関数値** であり、
+* それ以降の `<expr>` が **引数** である。
 
-## 2.4 制御構造: if / loop / match
+一つ目の `<expr>` は関数リテラル式であっても `<ident>` であっても `<if_expr>` や `<match_expr>` などを含む任意の `<expr>` であってよい。
+その型が関数型（`(T1,...,Tn) -> R` または `(T1,...,Tn) *> R`）であればよい。
 
-```ebnf
-<if_expr>   = "if" <expr> ["then"] <expr>
-              { "elseif" <expr> ["then"] <expr> }
-              "else" <expr>
+---
 
-<loop_expr> = "loop" <expr>
-```
+## if 式 / loop 式 / while 式 / match 式
 
-match 式は共通のスコープ付きリスト `<scoped_list<match_case>>` で表現：
+### if 式
 
 ```ebnf
-<match_case> = "case" <pattern> "=>" <expr>
-
-<match_expr> = "match" <expr> <scoped_list<match_case>>
-
-<expr> = <if_expr> | <loop_expr> | <match_expr>
+<if_expr> =
+    "if" <expr> ["then"] <expr>
+    { "elseif" <expr> ["then"] <expr> }
+    "else" <expr>
 ```
 
-## 2.5 パターン
+* 条件式の型は `Bool` でなければならない。
+* 各分岐の式の型から、`Never` 型（後述）を考慮して if 全体の型を決定する。
 
-**Pattern**（`/ˈpæt.ɚn/`, パターン）は将来の拡張も見据えた構造：
+### loop 式（更新：スコープ式 + 型付きループ）
+
+元仕様では `<loop_expr> = "loop" <expr>` だったが、
+`loop` の本体はスコープを持つので `<scoped_expr>` に変更する。
+
+```ebnf
+<loop_expr> =
+    "loop" <scoped_expr>
+```
+
+`loop` は **break で値を返せる型付きループ** として定義する。
+
+#### break / continue の構文（loop/while 共通）
+
+```ebnf
+<break_expr> =
+    "break" [ <expr> ]
+
+<continue_expr> =
+    "continue"
+
+<expr> =
+      <break_expr>
+    | <continue_expr>
+    | ...
+```
+
+* `break` / `break expr` / `continue` いずれも **式としての型は `Never`**（後述）。
+* ただし `break expr` の `<expr>` 自体には通常の型 `T` が付く。
+  `loop` の結果型を決めるために使用される。
+
+#### loop の型規則（型付きループ）
+
+`loop` 本体の中の `break` を見て、`loop` 式全体の型を決める：
+
+1. **値付き `break expr` が 1 つもない場合**
+   → `loop` 式の型は **`Unit`**。
+2. **値付き `break expr` が 1 つ以上ある場合**
+   → それらに現れる `expr` の型はすべて同一 `T` でなければならない。
+   → `loop` 式の型は **`T`**。
+3. `loop` の型が `T ≠ Unit` の場合、**値なし `break` は使用できない**。
+   （値なし `break` は「`Unit` を返すループ」でのみ許される。）
+
+例:
+
+```nepl
+; Unit 型のループ
+loop:
+    if should_stop then
+        break
+    else
+        continue
+
+; i32 を返すループ
+let n: i32 =
+    loop:
+        if cond1 then
+            break 10
+        elseif cond2 then
+            break 20
+        else
+            continue
+```
+
+### while 式（新規追加）
+
+これまで文章中にだけ出ていた `while` を、正式な構文として定義する。
+
+```ebnf
+<while_expr> =
+    "while" <expr> <scoped_expr>
+```
+
+* 条件 `<expr>` の型は `Bool` でなければならない。
+* 本体 `<scoped_expr>` 内で何をしても、**`while` 式全体の型は常に `Unit`**。
+* 本体内では
+
+  * `break`（値なし）
+  * `continue`
+  * `return [expr]`
+    を使えるが、`break expr`（値付き）は使用できない（`while` は常に `Unit` を返すため）。
+
+### match 式
+
+`match` 式は、共通のスコープ付きリスト `<scoped_list<match_case>>` を用いて定義する。
+
+```ebnf
+<match_case> =
+    "case" <pattern> "=>" <expr>
+
+<match_expr> =
+    "match" <expr> <scoped_list<match_case>>
+```
+
+NEPL の `match` は常に `case` と `=>` を用いる。
+（`match cmd with | Quit -> ...` のような ML 風記法は使わない。）
+
+`<scoped_list<…>>` のスコープの決定は、後述するスコープの決定方法と同一である。
+
+### if / loop / while / match を `expr` に含める
+
+```ebnf
+<expr> =
+      <if_expr>
+    | <loop_expr>
+    | <while_expr>
+    | <match_expr>
+    | <func_literal_expr>
+    | <func_call_expr>
+    | <block_expr>
+    | <let_expr>
+    | <let_function_expr>
+    | <include_expr>
+    | <import_expr>
+    | <namespace_expr>
+    | <use_expr>
+    | <when_expr>
+    | <return_expr>
+    | <set_expr>
+    | ...        // その他リテラル・識別子等
+```
+
+（上記は概略。実際の BNF では適宜合成する。）
+
+---
+
+## パターン
+
+`match` 式で用いる `<pattern>` は、将来的な拡張を見据えて以下のように定義する。
+リテラルや変数、ワイルドカードに加えて、`enum` / `struct` 用のパターンも含める。
 
 ```ebnf
 <pattern> =
@@ -177,7 +339,7 @@ match 式は共通のスコープ付きリスト `<scoped_list<match_case>>` で
 <wildcard_pattern> = "_"
 ```
 
-Enum 用:
+`enum` 用のパターン：
 
 ```ebnf
 <enum_variant_pattern> =
@@ -187,7 +349,7 @@ Enum 用:
 <pattern_list> = <pattern> ("," <pattern>)*
 ```
 
-Struct 用:
+`struct` 用のパターン：
 
 ```ebnf
 <struct_pattern> =
@@ -197,36 +359,40 @@ Struct 用:
 <field_pattern>      = <field_name> ":" <pattern>
 ```
 
-## 2.6 型注釈
+---
+
+## 型注釈
+
+型注釈によって曖昧な型を決定させたり、書いた式の型が意図したものであるか確認したりできる。
 
 ```ebnf
 <type_annotation> = <type> <expr>
 <expr>            = <type_annotation>
 ```
 
-* 任意の式に対して `Int expr` のように型注釈を付けられる。
-* 型推論を補助し、意図した型と一致しない場合にエラーとして検出する。
-
 ---
 
-# 3. スコープとブロック
+## スコープ
 
-## 3.1 スコープ構文
+基本的に、スコープは `{}` (C 風) か `:` (Python 風) によって明示される。
 
-スコープは **C 風 `{}`** と **Python 風 `:` + インデント** の 2 種類で表現できる。
+* C 風: `{}` の中身を 1 つのスコープとして扱う
+* Python 風: `:` がある行の **次の行から** を 1 つのスコープとして扱い、スコープの中では `:` のある行よりもインデントが大きい（空行のインデントは無視）
+
+この 2 つは併用できる。
 
 ```ebnf
-<scoped_expr> = "{" <expr> "}" | ( ":" <expr> with off-side rule )
-<expr>        = <scoped_expr>
+<scoped_expr> =
+      "{" <expr> "}"
+    | ( ":" <expr> with off-side rule )
+
+<expr> = <scoped_expr>
 ```
 
-* `{}` 版: `{ ... }` 内部が 1 スコープ。
-* `:` 版: `:` の次の行以降で、**インデントが増えた行** がスコープの中身になる（空行のインデントは無視）。
-* 両者は併用可能。
+### スコープ付きリスト `<scoped_list<…>>`
 
-## 3.2 スコープ付きリスト `<scoped_list<…>>`
-
-**Scoped list**（スコープ付きリスト）は、`match` / `enum` / `struct` などで共通する構文コンビネータ：
+`match` の `case` 列や、`enum` の variant 列、`struct` の field 列など、
+「同一スコープ内に並ぶ要素のリスト」を共通して扱うために、ジェネリックなスコープ付きリスト `<scoped_list<Item>>` を導入する。
 
 ```ebnf
 <scoped_list<Item>> =
@@ -237,21 +403,48 @@ Struct 用:
     { Item ("," | ";") }+
 ```
 
-* `Item` に `<match_case>` / `<enum_variant>` / `<field>` などを与える。
-* カンマ`,`とセミコロン`;` の両方を区切りとして許可。
+* `Item` には `<match_case>` や `<enum_variant>`、`<field>` などを与える
+* カンマ `,` とセミコロン `;` の両方を区切り記号として許可する
+* `{}` 版と `:` + オフサイドルール版のどちらでも書ける
 
-## 3.3 ブロック式
+`match` / `enum` / `struct` は、この `<scoped_list<…>>` を通して同じスコープ決定ロジックを共有する。
+
+---
+
+## 関数のスコープ
+
+関数リテラルでの引数は、そのリテラルの本体 `<expr>` がスコープになる。
+引数名はそのスコープ内でのみ有効。
+
+---
+
+## match のスコープ
+
+`match` パターンで使った識別子は、対応する `match_case` がスコープになる。
+他の `case` では同名識別子を別に定義してもよい。
+
+---
+
+## ブロック式
+
+複数の式をまとめて式にする。
 
 ```ebnf
-<block_expr> = { <expr> ";" }+ <expr>
-<expr>       = <block_expr>
+<block_expr> =
+    { <expr> ";" }+ <expr>
+
+<expr> = <block_expr>
 ```
 
-* 複数の式を `;` でつないで 1 つの式にする。
-* 先頭〜末尾ひとつ前までの式の型が `Unit` 以外なら警告を出す。
-* ブロック式全体の型は **最後の `<expr>` の型**。
+* `;` の手前の `<expr>` の型が `Unit` でない場合、警告を出してもよい（結果が無視されている）。
+* ブロック式の型は **最後の `<expr>` の型**。
 
-## 3.4 変数束縛式 `let`
+---
+
+## 変数束縛式
+
+変数束縛は `let` を基本とし、いくつかの種類がある。
+これは型が `Unit` の式である。
 
 ```ebnf
 <let_suffix> = "mut" | "hoist"
@@ -263,18 +456,21 @@ Struct 用:
 <expr> = <let_expr>
 ```
 
-ルール:
+* 変数束縛は基本的に immutable であり、mutable な変数束縛は `mut` をつけることで作成できる。
+* `let mut x = expr`
 
-* デフォルト: immutable
-* `mut` 付き: mutable 変数束縛
-* `hoist` 付き: 巻き上げ（同一スコープ内なら定義より前でも使用可）
+  * `x` は `set` による再代入が可能な変数。
+* `let hoist x = expr`
 
-  * `mut` とは共存不可（定数専用）
-* `namespace` 直下では `pub` prefix を使用可（`mut` とは共存不可、定数専用）
-* `<ident>` が `_` で始まる場合、未使用でも警告を出さない。
-* `<ident>` が `_` そのものの場合、実際にはどこにも束縛しない「捨てパターン」。
+  * 同一スコープ内であれば、定義の手前でも使用できる（巻き上げ）。
+  * `mut` suffix とは共存できず、定数専用。
+* `namespace` 直下では `pub` prefix を使用できる（`mut` suffix とは共存できず、公開定数専用）。
+* `<ident>` が `_` から始まる場合、未使用エラーを出さない。
+* `<ident>` が `_` の場合、実際にはどこにも束縛しない（捨て値）。
 
-### 3.4.1 関数束縛 `fn`
+### 関数束縛式
+
+関数の定義のために糖衣構文を用意する。
 
 ```ebnf
 <let_function_expr> =
@@ -283,56 +479,245 @@ Struct 用:
 <expr> = <let_function_expr>
 ```
 
-* `fn` は糖衣構文であり、`let hoist` と同じ意味を持つ。
-* `<expr>` の型が関数でない場合はエラー。
+これは `let hoist` と同じように扱う。
+`<expr>` の型が関数の型でない場合エラーを出す。
 
-### 3.4.2 スコープルール
+### 変数束縛とスコープ
 
-* 変数束縛が有効なスコープは、その `let` 式が属する **もっとも狭いスコープ**。
-* 関数リテラル式 / if 式 / loop 式 / match 式 / while 式に属する `<expr>` などで、
-  **スコープを作らずに変数束縛式を使った場合はエラー**。
+変数束縛が有効なスコープは、変数束縛式がある **もっとも狭いスコープ** になる。
 
-  * AST 上で「スコープノードが間にあるかどうか」で判定可能。
-* `match` のパターンで導入された識別子は、対応する `case` のスコープでのみ有効。
-* 関数リテラルの引数はその関数本体のスコープで有効。
+関数リテラル式、if 式、loop 式、while 式、match 式に属する `<expr>` など、
+「あって然るべきスコープ」を作成せずに変数束縛式を使用したらエラーを出す。
+これは AST でこれらの式から変数束縛式までの間にスコープノードがあるかで判定できる。
 
 ---
 
-# 4. 型システム
+## 型
 
-## 4.1 型の基本
+式は型を持つ。
+式は複数の値を返すことができない。
+つまり `() ()` のような `<expr>` は不正であり、`();()` のようにブロック式を用いる必要がある。
 
-**Type** (`/taɪp/`, 型) はすべての式に付くラベル。
+型は構造を持つ。例えば `struct` や `enum` や `vec` など。
 
-* 式は必ず 1 つの値を返す。
-* 複数値を返したい場合はタプル型を使う。
-* 型の例：
+### 基本型（更新）
 
-  * `Int`, `Float`, `Bool`, `String`, `Vec[T]`
-  * `enum`, `struct` 由来のユーザー定義型
-  * 関数型 `(T1, T2, ..., Tn) -> R`
+組み込みの基本型として、数値型は Rust / WASM と同様に以下を用いる：
 
-## 4.2 数値リテラルと暗黙の型変換
+* `i32`, `i64` : 32/64 bit 符号付き整数
+* `f32`, `f64` : 32/64 bit 浮動小数点数
 
-* `1` は **最初から `Int` 型**。
-* `1.0` は **最初から `Float` 型**。
+その他の基本型：
 
-**Implicit conversion** (`/ɪmˈplɪs.ɪt kənˈvɝː.ʒən/`, 暗黙の型変換 [インプリシットコンバージョン]) は一切行わない。
+* `Bool` : 真偽値
+* `Unit` : 単位型（値を 1 つだけ持つ）
+* `Never` : 決して値を返さない型（bottom 型、後述）
 
-* `Int` を要求する位置に `Float` を置いたら即エラー。
-* `Dog <: Animal` のような部分型関係があっても、暗黙で `Dog` → `Animal` に変換はしない（「代入可能性」としてだけ使う）。
+数値リテラルのデフォルト：
 
-## 4.3 Generics（ジェネリクス）
+* 整数リテラル `1` → `i32`
+* 小数リテラル `1.0` → `f64`
 
-**Generics** (`/dʒəˈne.rɪks/`, ジェネリクス) は将来導入する。
+暗黙の型変換は行わない。
+必要なら `cast` 関数などで明示的に変換する。
 
-* 型変数 `T, U, ...` を持つ **多相型** をサポートする。
-* オーバーロード解決時に、
+### 型構文の概略
 
-  * `(Int, Int) -> Int` と `(T, T) -> T` が両方マッチする場合、
-  * より具体的な単相型 `(Int, Int) -> Int` を優先する（後述の more specific ルール）。
+```ebnf
+<type> ::=
+      <builtin_type>
+    | <type_ident>
+    | <qualified_type_ident>
+    | <func_type>
+    | <type_application>      // ジェネリクス導入時の拡張用
 
-## 4.4 enum / struct と名前解決
+<builtin_type> ::= "i32" | "i64" | "f32" | "f64" | "Bool" | "Unit" | "Never" | ...
+
+<type_ident>           = <ident>
+<qualified_type_ident> = <namespace_name> "::" <type_ident>
+```
+
+* `enum` や `struct` で定義された型名は `<type_ident>` として参照される。
+* `namespace` 内の型は `<qualified_type_ident>` で参照できる。
+
+### Never 型と制御フロー（新規）
+
+**Never 型** は「値を一切持たない bottom 型」である。次のような式に付く：
+
+* `return [expr]`
+* `break`
+* `break expr`
+* `continue`
+
+これらの式は「必ずその位置から通常の実行には戻らない」ため、式としての型を `Never` とする。
+
+性質：
+
+* いかなる型 `T` に対しても `Never <: T`（`Never` はすべての型の部分型）として扱う。
+
+  * `if` / `match` などで、ある分岐が `Never` でも、他の分岐の型から全体の型を決められる。
+
+### 関数型（`->` / `*>`）
+
+```ebnf
+<func_type> =
+    "(" [ <type> { "," <type> } ] ")" ( "->" | "*>" ) <type>
+```
+
+* `(T1, ..., Tn) -> R` : 非純粋関数型
+* `(T1, ..., Tn) *> R` : 純粋関数型
+
+純粋関数から呼び出せるのは `*>` 型の関数のみ、という制約を型レベルで表現できる。
+
+### if / match の型付けと Never
+
+`if` / `match` の各分岐の型を `T1, T2, ...` とし、これらの **最小共通 supertype** を `T` とする。
+
+* いずれかの分岐が `Never` 型であっても、`Never` は bottom として扱い、他の分岐の型から `T` を決める。
+
+例：
+
+```nepl
+let f = |i32 x|->i32:
+    if lt x 0 then
+        return 0      ; then: Never
+    else
+        x             ; else: i32
+; if 全体: i32
+```
+
+`match` も同様：
+
+```nepl
+let g = |Cmd cmd|->Unit:
+    match cmd:
+        case Quit      => return ()
+        case Step(n)   => do_step n
+        case Other     => ()
+```
+
+* `Quit` アーム: `return () : Never`
+* `Step` アーム: `do_step n : Unit`
+* `Other` アーム: `() : Unit`
+
+`Never` を bottom として扱うことで、`match` 全体の型を `Unit` と決められる。
+
+### Generics（ジェネリクス）
+
+Generics（ジェネリクス）は、将来導入する型変数付きの多相型。
+ここでは詳細な構文は省略し、オーバーロード解決などで単相型が優先される方針のみ維持する。
+
+---
+
+## 複数ファイルサポート
+
+複数ファイルへの自然な分割を行える。
+あるファイルの任意の部分をそのまま別ファイルに切り出せる。
+
+別ファイルの読み込みには `include` 式と `import` 式を用いる。
+
+* `import` 式は、その別ファイルを書いた人と使う人が「別」の場合を想定（標準ライブラリやパッケージ）。
+* `include` 式は、その別ファイルを書いた人と使う人が「同じ」の場合を想定（同一プロジェクト内の分割）。
+
+どちらも、「その部分をそのファイルの中身で置き換えたかのように扱う」。
+ファイルスコープなどはない。
+従って、あるファイルの任意の部分をそのまま別ファイルに切り出せる。
+
+ファイル間の循環 include / import は不可。ファイル間の依存関係は DAG。
+ただし、エラーメッセージではそれぞれどのファイルのどこかを示すようにするので、
+実際にテキストとして単純に置き換えてはいけない。
+
+### include 式
+
+```ebnf
+<include_expr> ::= "include" <file_path>
+<expr>          = <include_expr>
+```
+
+* ファイルパスはそのファイルからの相対パス。
+* 型は `Unit`。
+
+### import 式
+
+```ebnf
+<import_expr> ::= "import" <import_name>
+<expr>        = <import_expr>
+```
+
+* ファイルパスはライブラリ側が JSON や CSV で一覧を提供し、それを解決する。
+* `import_name` は namespace の構造と似ていることが望ましい。
+* 型は `Unit`。
+
+---
+
+## namespace 式
+
+```ebnf
+<namespace_expr> ::= [ <pub_prefix> ] "namespace" <namespace_name> <scoped_expr>
+<pub_prefix>     = "pub"
+```
+
+* `<namespace_name>` は識別子。
+* `<namespace_expr>` の `<scoped_expr>` 直下では `pub` prefix を使用できる（さらにネストされた `scoped_expr` では不可）。
+* `<namespace_expr>` の型は `Unit`。
+
+namespace 自体も `pub` を付けることで公開・非公開を制御できる。
+
+* `namespace` 内の `namespace` はデフォルトで非公開。
+* 外側から参照するには `pub namespace` か `pub use` による再公開が必要。
+
+名前空間の解決は、**現在の namespace からの相対パス** として行う。
+ルート（最外）では、ファイルに定義された top-level の namespace や識別子を基点として解決する。
+
+---
+
+## use 式
+
+```ebnf
+<use_expr> =
+    [ <pub_prefix> ] "use" <use_tree>
+
+<use_tree> =
+      <use_path> [ "as" <ident> ]
+    | <use_path> "::" "*"
+
+<use_path> =
+    <ident> { "::" <ident> }
+```
+
+`use` 式は `Unit` 型の式であり、その `use` 式が属するもっとも狭いスコープに、パス `<use_path>` の別名を導入する。
+
+* `use ns1::ns2::func1;` → そのスコープ内で `func1` が使える。
+* `use ns1::ns2::func1 as f1;` → そのスコープ内で `f1` が使える。
+* `use ns1::ns2::*;` → そのスコープ内で `ns1::ns2` 内の公開された要素が一括で導入される。
+
+`pub use` の場合、その別名は親の namespace からも参照できる（再公開）。
+
+```nepl
+namespace ns1 {
+    pub namespace ns2 {}
+    namespace ns3 {}
+    namespace ns4 { fn fn1 hoge }
+    pub use ns4;
+}
+
+// ルート名前空間から見たとき:
+
+use ns1::ns2;      // OK: ns2 は pub namespace として公開されている
+use ns1::ns3;      // error: ns3 は非公開 namespace
+use ns2;           // error: ルートから直接 ns2 は見えない
+use ns1::ns4::*;   // OK: ns1 内で `pub use ns4;` により再公開されている
+```
+
+`use` により導入された名前も、変数束縛と同様に、その式が属するスコープ内のみで有効。
+
+---
+
+## enum, struct
+
+`enum` / `struct` も `namespace` 直下のスコープに現れる宣言であり、
+`pub` を付けることで公開することができる。
+また、`let hoist` と同様に、型宣言としてスコープ内で前方参照可能（暗黙の hoist）。
 
 ```ebnf
 <enum_def_expr> =
@@ -347,565 +732,219 @@ Struct 用:
 <field> = <field_name> ":" <type>
 ```
 
-* `enum` / `struct` は `namespace` 直下のスコープに現れる宣言。
-* `pub` を付けることで公開。
-* `enum` / `struct` 名は **型名前空間** に登録される。
-* `enum` の variant 名は **値名前空間** に登録され、コンストラクタ & パターンとして使う。
-* `struct` の field 名はトップレベル識別子にはならず、フィールドアクセス時にのみ使うメタ情報。
+* `<enum_name>` は識別子
+* `<enum_variant_name>` は識別子
+* `<struct_name>` は識別子
+* `<field_name>` は識別子
+* `<type>` は型
 
----
+`<enum_def_expr>` の型は `Unit`。
+`<struct_def_expr>` の型は `Unit`。
 
-# 5. 関数型とオーバーロード
+`<scoped_list<enum_variant>>` や `<scoped_list<field>>` は、`match` 式の `<scoped_list<match_case>>` と同じ挙動を持つ：
 
-## 5.1 関数型と内部表現
-
-**Function type** (`/ˈfʌŋk.ʃən taɪp/`, 関数型) は `(T1, T2, ..., Tn) -> R` の形で表現。
-
-**Overload** (`/ˈoʊ.vɚˌloʊd/`, 多重定義 [オーバーロード]) は、同じ名前の複数の関数シグネチャの集合として表現する。
-
-```text
-f : (Int, Int) -> Int
-  | (Int, Int, Int) -> Int
-  | (String, String) -> String
-```
-
-内部表現イメージ：
-
-```text
-Overload {
-    param_types: [Type],   // 引数型列
-    result_type: Type,     // 戻り値型
-    generics:    [TypeVar] // 必要なら
+```nepl
+// 例: ブレースを使う書き方
+enum Option<T> {
+    Some(T);
+    None
 }
 
-FuncType = { overloads: [Overload] }
-```
+// 例: コロン + インデントを使う書き方
+enum Option<T>:
+    Some(T)
+    None
 
-## 5.2 Overload resolution のステップ
-
-**Overload resolution** (`/ˌoʊ.vɚˈloʊd ˌrez.əˈluː.ʃən/`, オーバーロード解決) のアルゴリズムを形式化する。
-
-### 5.2.1 Rule 0': arity で切る
-
-**Arity** (`/ˈer.ə.t̬i/`, 引数個数 [アリティ]):
-
-> ある関数呼び出しフレーム F で、
-> 「このフレームが最終的に N 個の引数を持つ call site である」ことが
-> P-style + 型推論で確定した瞬間に、
-> `param_types.len() == N` のオーバーロードだけを候補に残す。
-
-* `param_types.len() < N` → 引数が多すぎ → 不適合
-* `param_types.len() > N` → 引数不足 → 不適合
-
-これは、
-
-* 括弧によってすでに `f e1 e2` の形が明示されている場合
-* P-style のフレームが「もうこれ以上引数を取らない」と判断された場合
-  どちらでも同じように適用される。
-
-### 5.2.2 Step 1: 型によるフィルタ
-
-call site `f e1 ... eN` に対して、候補集合を `C` とする。
-
-各 `Oi ∈ C` について：
-
-1. 型変数を fresh にした `Oi` を用意。
-2. 各引数 `ej` の型 `type(ej)` と `Oi.param_types[j]` を unify。
-3. どこか 1 つでも矛盾したら、その `Oi` は候補から除外。
-4. 矛盾がなければ「`Oi` はこの call site に適合」とみなす。
-
-### 5.2.3 Step 2: 個数による決定
-
-* 適合候補が 0 個 → 「適合するオーバーロードがない」型エラー。
-* 適合候補が 1 個 → それを採用。
-* 適合候補が 2 個以上 → 次節の more specific ルールを適用。
-
-## 5.3 more specific（より具体的）ルール
-
-**More specific** (`/mɔːr spəˈsɪf.ɪk/`, より具体的 [モア・スペシフィック]) とは、「同じ引数に対して片方がもう片方の特殊化になっている」こと。
-
-### 5.3.1 Rule A: 単相 vs 多相
-
-> **Rule A（単相優先）**
-> 同じ arity の 2 候補 `O1`, `O2` があり、
-> 引数を当てはめた結果として
->
-> * `O1` が完全に単相（型変数を含まない）
-> * `O2` は型変数を含む（より一般的）
->   のとき、`O1` を `O2` より more specific とみなし優先する。
-
-例:
-
-```text
-f : (Int, Int) -> Int
-  | (T,   T  ) -> T
-
-f 1 2  // → (Int,Int)->Int を採用
-```
-
-### 5.3.2 Rule B: Subtyping による具体性
-
-**Subtyping** (`/ˈsʌb.taɪp.ɪŋ/`, 部分型付け [サブタイピング]) を考慮：
-
-> **Rule B（部分型による具体性）**
-> 2 候補 `O1`, `O2` のパラメータ型列が、すべての位置 j で `O1.param[j] <: O2.param[j]` かつ、
-> 少なくとも 1 箇所 `k` で `O2.param[k] </: O1.param[k]` なら、
-> `O1` は `O2` より more specific である。
-
-例:
-
-```text
-feed : (Animal) -> Unit
-     | (Dog)    -> Unit
-
-Dog <: Animal
-```
-
-`feed myDog`（`myDog: Dog`）では、両候補が適合するが `(Dog)->Unit` を more specific として採用する。
-
-### 5.3.3 最終決定
-
-* 候補集合 `C` から、「他のどの候補からも more general とみなされない」ものを集める。
-* それが
-
-  * ちょうど 1 個 → それを採用。
-  * 複数 → 「あいまいオーバーロード」エラー。
-
-## 5.4 cast の設計
-
-**Cast** (`/kæst/`, 型変換 [キャスト]) は、暗黙変換を提供しない代わりに **明示的な関数として提供** する。
-
-```text
-cast : (Int)   -> Float
-     | (Float) -> Int
-     | (Dog)   -> Animal
-     | ...
-```
-
-* `cast` も普通のオーバーロード関数。
-* ただし **戻り値の期待型（コンテキスト）** も使って絞り込む：
-
-手順:
-
-1. `cast e` のとき、まず `e` の型 `Te` を推論。
-2. `param_types == [Te]` のオーバーロード候補を列挙。
-3. 戻り値型について、もしコンテキストの期待型 `R_expected` があれば、
-
-   * `result_type == R_expected` の候補だけを残す。
-4. 残り 0 / 1 / 複数 の場合：
-
-   * 0 → その変換は未定義（エラー）。
-   * 1 → 採用。
-   * 複数 → あいまいエラー（型注釈や別の cast を書かせる）。
-
----
-
-# 6. P-style 決定アルゴリズム
-
-## 6.1 Frame と Stack
-
-**Frame** (`/freɪm/`, フレーム) は 1 つの関数呼び出しの途中状態：
-
-```text
-Frame {
-    func_expr: Expr       // f, add, 関数リテラルなど
-    overloads: [Overload] // f に対する候補集合
-    args:      [Expr]     // ここまでに集まった引数
-    parent:    Option<FrameId>
+// struct も同様
+struct Point {
+    x: i32,
+    y: i32,
 }
+
+struct Point:
+    x: i32
+    y: i32
 ```
 
-これを stack に積み、P-style のトークン列を左から処理する。
+### enum / struct と名前解決
 
-## 6.2 高レベルの流れ
+* `enum` 名 / `struct` 名は **型名前空間** に登録される。
+* `enum` の variant 名は **値名前空間** に登録される（パターンおよびコンストラクタとして使う）。
+* `struct` の field 名は、その struct 型に紐づくメタ情報としてのみ保持し、`p.x` 参照時に解決する（トップレベル識別子としては登録しない）。
 
-1. ある曖昧な `<expr>` に対応する prefix 列（括弧や `{}` ごとに区切った単位）を入力とする。
-2. 左から順に term を読む：
+`match` のパターンで：
 
-   * 関数型になりうる term を見たら、新しい Frame を push。
-   * 「完成した式」（リテラル / 括弧式 / 閉じた Frame 結果など）を見たら、
-
-     * スタックトップの Frame に引数として渡す。
-3. 各 Frame では、引数が 1 つ増えるたびに
-
-   * Overload 候補に対して部分的な型チェックを行い、
-   * あり得ない候補をその場で削除していく。
-4. 「これ以上この Frame に引数が渡らない」と判定できた瞬間に：
-
-   * `args.len()` を arity として Rule 0' を適用し、
-   * その Frame を確定した call site として閉じる。
-5. 閉じた Frame の結果は 1 つの `Expr` として親 Frame に渡される。
-6. 最終的に stack が空で、ちょうど 1 つの AST が得られれば成功。
-
-### 6.2.1 「これ以上引数が渡らない」条件
-
-例えば:
-
-* 次のトークンが「別の関数」ではなく、上位レベルの式の区切り（`;`, `}`, ファイル末尾など）のとき。
-* その Frame に残っているすべての Overload 候補が、これ以上引数を取る arity を持たないと判定できたとき。
-
-などを組み合わせて判断する。
-
-## 6.3 具体例: `add 1 add add 2 3 4`
-
-ここでは `add : (Int, Int) -> Int` のみがあると仮定する。
-
-トークン列:
-
-```text
-[ add0, 1, add2, add3, 2, 3, 4 ]
+```nepl
+case Some(x) => ...
+case None    => ...
 ```
 
-ざっくりの処理:
+や
 
-1. `add0` → Frame F1 を作成
-2. `1`    → F1.args = [1]
-3. `add2` → Frame F2（parent = F1）
-4. `add3` → Frame F3（parent = F2）
-5. `2`    → F3.args = [2]
-6. `3`    → F3.args = [2,3]
+```nepl
+case Point { x: x1, y: _ } => ...
+```
 
-   * `add` は 2 引数関数なので F3 はこれ以上引数を取らない → arity=2
-   * Rule 0' により arity=2 の Overload だけ残す（ここでは 1 つだけ）。
-   * F3 を閉じて `Expr(add 2 3)` を F2 へ渡す。
-7. F2.args = [`add 2 3`]
-8. `4`    → F2.args = [`add 2 3`, 4]
-
-   * F2 も 2 引数で満杯 → F2 を閉じて `Expr(add (add 2 3) 4)` を F1 へ渡す。
-9. F1.args = [1, `add (add 2 3) 4`]
-
-   * F1 も 2 引数で満杯 → F1 を閉じる → `add 1 (add (add 2 3) 4)`
-
-こうして、P-style の曖昧な列から一意の木構造が得られる。
-
-3 引数版 `add` が存在する場合も、各 Frame を閉じた時点の `args.len()` で arity が決まるため、
-2 引数で閉じた call site には 2 引数版だけが候補として残る。
+といった書き方が自然に可能になる。
 
 ---
 
-# 7. 組み込み関数・標準ライブラリ・namespace
+## 代入 `set`（新規セクション）
 
-## 7.1 `@` prefix による組み込み
+### assignable（代入可能式）
 
-**Intrinsic** (`/ɪnˈtrɪn.zɪk/`, 組み込み関数 [イントリンシック]) を、特別な prefix `@` を持つ識別子として表す:
-
-* 例: `@i32.add`, `@f64.mul`, `@memory.grow`, `@wasi.fd_write` など。
-
-ルール:
-
-* `let @hoge = ...` や `fn @hoge = ...` のように、`@` で始まる名前を **定義する** ことは禁止。
-* 既存の `@...` 組み込みを **参照・呼び出す** のは許可（ただし主に標準ライブラリ実装向け）。
-* Lexer レベルでは `<builtin_ident>` として通常の `<ident>` と区別する想定。
-
-## 7.2 namespace と `pub`
-
-**Namespace** (`/ˈneɪm.speɪs/`, 名前空間 [ネームスペース]) は次の構文：
+`set` の左辺に置ける **代入可能式 (assignable)** を明示的に定義する。
 
 ```ebnf
-<namespace_expr> ::= [ <pub_prefix> ] "namespace" <namespace_name> <scoped_expr>
-<pub_prefix>     = "pub"
+<assignable> =
+      <ident>
+    | <field_expr>
+
+<field_expr> =
+    <expr> "." <ident>
 ```
 
-* `<namespace_name>` は通常の識別子。
-* `namespace` 直下の `scoped_expr` 内では `pub` prefix を使える。
-* さらにネストされた `scoped_expr` では `pub` を使えない。
-* `namespace` 自体も `pub` を付けることで公開・非公開を制御。
-* ネストした `namespace` はデフォルトで非公開であり、外側から参照するには `pub namespace` または `pub use` が必要。
+将来的にパターン等を拡張する余地を残すが、現在は上記 2 種類。
 
-### 7.2.1 use 式
+### set 式
 
 ```ebnf
-<use_expr> =
-    [ <pub_prefix> ] "use" <use_tree>
+<set_expr> =
+    "set" <assignable> <expr>
 
-<use_tree> =
-      <use_path> [ "as" <ident> ]
-    | <use_path> "::" "*"
-
-<use_path> =
-    <ident> { "::" <ident> }
+<expr> = <set_expr>
 ```
 
-* `use ns1::ns2::func1;` → そのスコープ内で `func1` を使える。
-* `use ns1::ns2::func1 as f1;` → `f1` を別名として導入。
-* `use ns1::ns2::*;` → `ns1::ns2` 内の公開要素を一括導入。
-* `pub use` の場合、その別名は親 namespace からも参照可能（再公開）。
+#### 一般ルール
 
-## 7.3 標準ライブラリ構造と `.nepl` ファイル
+1. 左辺が単純な変数 `x` の場合：
 
-標準ライブラリは `std` namespace を根にして構成する。
+   * `x` は現在のスコープから見える `let mut x` でなければならない。
+2. 左辺が `p.x` / `p.x.y` などのフィールドアクセスの場合：
 
-### 7.3.1 構造イメージ
+   * 一番外側の基底 `p` は `let mut p` によって束縛された変数でなければならない。
+3. `set` 式の型は常に `Unit`。
+4. 右辺 `<expr>` の型は、左辺が指す変数 / フィールドの型と一致しなければならない。
+
+例：
 
 ```nepl
-pub namespace std:
+let mut x = 0
+set x 10          ; OK
 
-    include "std/math.nepl"
-    include "std/string.nepl"
-    include "std/vec.nepl"
+let y = 0
+set y 10          ; エラー: y は immutable
 
-    when (istarget "wasm-core"):
-        include "std/platform/wasm_core.nepl"
+let mut p = Point { x = 1, y = 2 }
+set p.x 3         ; OK
 
-    when (istarget "wasi"):
-        include "std/platform/wasi.nepl"
+let q = Point { x = 1, y = 2 }
+set q.x 3         ; エラー: q は immutable
 ```
 
-`std/math.nepl` 側:
+### 純粋関数内での `set`
 
-```nepl
-pub namespace math:
+純粋関数 `*>` の本体では、さらに制約がかかる：
 
-    pub fn add = |Int a, Int b|->Int
-        @i32.add a b
-
-    pub fn add = |Float a, Float b|->Float
-        @f64.add a b
-
-    ; 他の演算子も同様に定義
-```
-
-ユーザからは：
-
-```nepl
-import std
-
-std.math.add 1 2
-```
-
-のように使用できる。
-
-### 7.3.2 include / import
-
-```ebnf
-<include_expr> ::= "include" <file_path>
-<expr>         = <include_expr>
-
-<import_expr>  ::= "import" <import_name>
-<expr>         = <import_expr>
-```
-
-* `include`: 同一プロジェクト内のファイル分割を想定。
-
-  * パスは現在のファイルからの相対パス。
-  * 型は `Unit`。
-* `import`: ライブラリ用途（標準ライブラリや外部パッケージ）。
-
-  * import 名→パス解決は JSON / CSV などの一覧ファイルに基づく。
-  * 名前空間構造と似た形が望ましい。
-  * 型は `Unit`。
-
-両者とも、「その部分を他ファイルの中身で置き換えたかのように扱う」が、
-実際にテキスト置換はせず、エラーメッセージの位置情報などは元ファイルを保持する。
-
-* ファイル間の循環 include/import は禁止。依存関係は DAG。
+* `set` できるのは **その関数のローカルスコープで `let mut` された変数**（およびそのフィールド）のみ。
+* 外側スコープの変数（クロージャキャプチャなど）やグローバルを `set` するのは禁止。
 
 ---
 
-# 8. マルチプラットフォーム: when と istarget
+## マルチプラットフォーム対応
 
-## 8.1 when 構文
-
-コンパイル時条件分岐用に **when 構文** を導入する。
+### コンパイル時制約 `when`
 
 ```ebnf
 <when_expr> ::= "when" "(" <expr> ")" <scoped_expr>
-<expr>      = <when_expr>
 ```
 
-制約:
+* `<expr>` は `Bool` 型であり、**コンパイル時に値が確定する** 必要がある。
 
-* `<expr>` は **Bool 型** でなければならない。
-* `<expr>` は **コンパイル時に値が確定する式** でなければならない。
+`when (cond) block` は、以下のように解釈される：
 
-  * そうでない場合、コンパイルエラー。
+1. `cond` をコンパイル時に評価する。
+2. `cond == true` の場合：`block` の内部を通常どおりパースし、名前解決・型チェック・コード生成を行う。
+3. `cond == false` の場合：`block` の内部は無視される（このとき、block 内の未定義シンボル・型エラーなどは報告されない）。
 
-意味:
+`cond` がコンパイル時に値を持たない式であればコンパイルエラー。
 
-* `when (cond) block` は次のように解釈される：
+### istarget
 
-  1. `cond` をコンパイル時に評価する。
-  2. `cond == true` の場合: `block` 内を通常どおりパース・名前解決・型チェック・コード生成。
-  3. `cond == false` の場合: `block` 内は **完全に無視** され、
+コンパイル時関数 `istarget : (String) -> Bool`：
 
-     * 未定義シンボルや型エラーなどは報告されない。
+* 引数の `String` が現在のコンパイルターゲット名と一致するなら `true`。
+* 一致しないなら `false`。
 
-これにより、ターゲットごとに include するファイルや定義を切り替えられる。
+#### 例
 
-## 8.2 istarget 関数
-
-**istarget** (`/aɪsˈtɑːr.ɡɪt/`, ターゲット判定) はコンパイル時関数：
-
-```text
-istarget : (String) -> Bool
-```
-
-* 引数の `String` が現在のコンパイルターゲット名と一致すれば `true`。
-* 一致しなければ `false`。
-
-例:
-
-* `istarget "wasm-core"` → Wasm コア用ターゲットなら `true`。
-* `istarget "wasi"`      → WASI 対応ターゲットなら `true`。
-
-`when` の条件として使うことで、プラットフォームごとに標準ライブラリ構成を切り替える。
+* `istarget "wasm-core"` → Wasm コア用ターゲットなら `true`
+* `istarget "wasi"` → WASI 対応ターゲットなら `true`
 
 ---
 
-# 9. エラー条件と診断
+## 処理系の実装
 
-## 9.1 Overload / 型まわりのエラー
+P-style の記法は、関数に限らず、**型推論の段階で木構造が決定される**。
 
-1. **No overload**
+* `<term>` が定数か変数か関数か、引数の数はいくつか等は、構文解析器では扱わない。
+* エラーや警告が発生したとしても、適切にエラー復帰を行い、できるだけ全てのエラーを報告できるようにする。
 
-   * arity フィルタ後に候補 0。
-   * または型フィルタ後に候補 0。
-2. **Ambiguous overload**
+処理系は Rust で実装し、`core` は `no_std` で作成する。
+CLI や WebPlayground 用の Wasm など様々なインターフェイスを提供する。
+複数ファイルのためのファイル IO 以外は `no_std` で作成できるはずである。
+ファイル IO は各プラットフォームに依存する部分として API のような形で抽象化を提供する。
 
-   * 型フィルタ後に候補 ≥ 2。
-   * more specific ルールでも 1 つに絞れない。
-3. **不許可な cast / Subtyping**
+### 処理の流れ
 
-   * 該当する cast オーバーロードが存在しない。
+1. 字句解析
+2. 構文解析
+3. 名前解決・型推論
+4. その他チェック
 
-エラーメッセージには、
+構文解析の段階では P-style の引数や型の解決が行われていない曖昧な構文木を作成し、
+型推論の段階では完全に確定した構文木を作成する。
 
-* 候補となったシグネチャ一覧
-* 実際に渡された引数の型列
-* どの位置で不一致が起きたか
+#### 構文解析
 
-を含めることを目標とする。
+構文解析では括弧類、スコープとブロック式、`include` / `import` / `namespace` / `use` 式などの解析・処理を行う。
+構文解析の段階で、P-style の引数のような部分は扱わない。
 
-## 9.2 P-style 解釈不能エラー
+変数束縛は `Unit` の式なので、`let hoge hoge let hoge hoge` のような式は作れないため、
+スコープ解析や `;` の存在によって変数束縛の場所の一覧をこの段階で取得できるはずである。
 
-* 入力を読み切ったとき、どこかの Frame が
+`enum` / `struct` の定義も、この段階で「スコープ内に属する宣言」として収集し、
+後段の名前解決で前方参照を許可する（暗黙の hoist 扱い）。
 
-  * 引数不足 / 余りで閉じてしまう
-  * あるいは stack が空にならず、完結する木構造が存在しない
-* この場合は「P-style の曖昧な列を一貫した AST にできなかった」としてエラーを報告する。
+`use` 式についても、この段階で「このスコープで導入されるエイリアス候補」として解析しておき、
+名前解決フェーズで実際のパス解決と衝突検出を行う。
 
-## 9.3 when / istarget 関連エラー
+#### 名前解決
 
-* `when` の条件式が Bool 型でない → 型エラー。
-* `when` の条件式がコンパイル時に値を持たない → 「コンパイル時計算不可」エラー。
+`hoist` の識別子は、巻き上げが発生するため、定義される場所よりも手前で使用されることがある。
+また、相互再帰の関数のように、片方を先に完全に解析することもできないということに留意が必要である。
 
----
+関数リテラルは引数と返り値の型を先ず提示するので、そこまでを事前に解析することで相互再帰の関数もサポートできるはずである。
 
-# 10. 実装計画の概要
+`enum` / `struct` については：
 
-## 10.1 型まわりのデータ構造（Rust イメージ）
+* 同一スコープ内のすべての `enum` / `struct` を事前に登録し、型名として前方参照可能にする。
+* `enum` の variant 名を値名前空間に登録し、パターン / コンストラクタとして解決する。
+* `struct` の field 名はその struct 型に紐づくメタ情報としてのみ保持し、`p.x` 参照時に解決する。
 
-```rust
-enum Type {
-    Int,
-    Float,
-    Bool,
-    String,
-    Vec(Box<Type>),
-    Func(FuncType),
-    TypeVar(TypeVarId),
-    // Enum, Struct, ...
-}
+`namespace` と `use` については：
 
-struct Overload {
-    param_types: Vec<Type>,
-    result_type: Type,
-    generics: Vec<TypeVarId>,
-}
+* `namespace` はスコープを作り、`pub` 付きの要素だけが外側から見える。
+* `use` 式はそのスコープ内に別名を導入し、`pub use` はその別名を親の namespace に再公開する。
+* パス解決は、現在の namespace からの相対パスとして行い、ルートでは top-level から解決する。
 
-struct FuncType {
-    overloads: Vec<Overload>,
-}
+#### 型推論
 
-struct TypeVar {
-    id: TypeVarId,
-    // union-find 的な代表・制約など
-}
-```
+型推論では P-style の記法の引数の決定も扱う。
+スタックベースのアルゴリズム（Frame スタック）を用意して処理する。
 
-## 10.2 AST レイヤ
+* 全ての必要な情報は事前に判明するはずなので、手前から処理していけばよい。
+* 型注釈も関数も手前に書かれる。
 
-* `Expr` は「P-style 未確定の曖昧な AST」を表す。
-
-  * 例: `Expr::PrefixSeq(Vec<PrefixTerm>)`。
-* 型推論後には「完全に確定した AST」`ExprTyped` を構築。
-
-  * 例: `Call { func: Box<ExprTyped>, args: Vec<ExprTyped>, ty: Type }`。
-
-## 10.3 型推論 + P-style 決定の入口
-
-1. 構文解析済み `Expr` を入力として受け取る。
-2. その中の「P-style シーケンス」を抽出。
-3. 各シーケンスごとに:
-
-   * Frame スタックを初期化。
-   * 左から term を処理。
-   * Frame を閉じるたびに Overload resolution を適用し `ExprTyped` を構築。
-4. 全体の制約を unify して型を確定。
-
-## 10.4 Frame 処理の疑似コード
-
-```text
-process_prefix_terms(terms: &[Term]) -> ExprTyped {
-    let mut stack: Vec<Frame> = Vec::new();
-
-    for term in terms {
-        match classify_term(term) {
-            TermKind::Function(func_expr, func_type) => {
-                let overloads = extract_overloads(func_type);
-                stack.push(Frame::new(func_expr, overloads));
-            }
-            TermKind::Value(expr_typed) => {
-                push_arg_to_top_frame(&mut stack, expr_typed)?;
-                try_close_frames_if_possible(&mut stack)?;
-            }
-        }
-    }
-
-    if stack.len() != 1 || !stack[0].is_closed() {
-        return Err(TypeError::UnclosedFrames);
-    }
-
-    stack.pop().unwrap().into_expr_typed()
-}
-```
-
-`push_arg_to_top_frame`:
-
-* `frame.args.push(expr)`
-* `update_overload_candidates_by_type(frame, expr.ty)`
-* 必要なら「これ以上引数を取れない」フラグを立てる。
-
-`try_close_frames_if_possible`:
-
-* トップフレームが閉じられる条件を検査。
-* 閉じられるなら:
-
-  * `arity = frame.args.len()` を確定。
-  * `filter_overloads_by_arity(frame, arity)`（Rule 0'）。
-  * `resolve_overload(frame)` で 1 つに決めて `ExprTyped::Call` を作る。
-  * 親フレームにその結果を渡し、再帰的に親も閉じられるかチェック。
-
-## 10.5 テスト戦略（ざっくり）
-
-* 単純な P-style: `add 1 2`, `add 1 add 2 3` など。
-* ネストした P-style: `add 1 add add 2 3 4`。
-* 括弧あり: `add 1 (add 2 3)`。
-* ユーザ例: `f 1 (f 2 3)`, `g (g 1 2 3)` など。
-* 型混在 + オーバーロード: `h : (Int,Int)->Int | (String,String)->String` など。
-* Generics + 単相: `f : (Int,Int)->Int | (T,T)->T` + `f 1 2`。
-* Subtyping: `feed : (Animal)->Unit | (Dog)->Unit`。
-* cast: `cast : (Int)->Float | (Float)->Int` など。
-
----
-
-# 11. 今後のドキュメント分割方針（メモ）
-
-将来的には `doc/` 以下を次のように分割していく計画とする（実際の `doc_plan.txt` は処理系実装後に整備）。
-
-* `doc/lang/` — ユーザ向け Language Reference
-* `doc/compiler/` — 実装者向け仕様（型推論・P-style アルゴリズムなど）
-* `doc/stdlib/` — 標準ライブラリ API & プラットフォーム差分
-
-現時点では、本 `starting_detail.md` を「仕様の起点」とし、
-実装が進み次第ここから分割・リファクタリングしていく。
+オーバーロードも扱うため、推論中に決定できない型や矛盾する型が現れたときはエラーを出す。
+純粋関数 `*>` / 非純粋関数 `->` の違い、`Never` を含む制御フローの整合もここでチェックする。
