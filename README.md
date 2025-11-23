@@ -48,6 +48,8 @@ scripts/fetch_editorsample.sh
 
 The script clones `https://github.com/bem130/editorsample` into `web/vendor/editorsample`. Set `EDITOR_SAMPLE_REPO`, `EDITOR_SAMPLE_REF`, or `EDITOR_SAMPLE_DEST` to override the repository, ref, or destination root for testing or offline mirroring. After cloning, serve `web/index.html` (for example with `trunk serve` or any static file server) to load the editor iframe and the playground scaffolding.
 
+To keep long-running or infinite programs from blocking the browser, the `nepl-web-playground` crate exposes a fuel-driven stepper around `wasmi` with fuel metering enabled. Build it for `wasm32-unknown-unknown` and wrap its API from JavaScript to slice execution into short ticks: add fuel, call `run_slice` until it returns `finished`, or stop early by clearing any pending resumable call.
+
 ## Standard library layout
 Place `.nepl` files under `./stdlib`. The core crate loads every `.nepl` file recursively and records the relative path and contents in the `CompilationArtifact` so downstream tooling can embed or inspect the bundled library. The CLI uses this bundled path by default, and you can point it to an alternate root with `--stdlib /path/to/stdlib` when testing different library layouts. Platform shims live under `stdlib/platform` and wrap the WASM/WASI built-ins exposed by the compiler.
 

@@ -16,3 +16,4 @@
 - Added a `convert` stdlib namespace for `parse_i32` / `to_string` / `to_bool`, wired the evaluator to handle the conversions (including error cases), refreshed stdlib loading assertions, and exercised the new helpers through wasm execution paths.
 - Introduced a bundled `examples/io_pipeline.nepl` program that demonstrates standard I/O built-ins and composite operations, documented it in the README, and added a CLI test that compiles and executes it through wasmi.
 - Added a web playground scaffold under `web/`, wired a deployment script that clones the external `editorsample` editor into the vendor directory with configurable overrides, documented the setup in the README, and added CLI-side tests to verify the clone/update workflow.
+- Added a `nepl-web-playground` crate that wraps wasmi with fuel metering for browser use, provides fuel-sliced execution helpers, and updated the README to describe how to keep the playground responsive.
