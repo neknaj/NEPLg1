@@ -100,6 +100,7 @@ fn operator_arity(name: &str) -> Option<usize> {
         "neg" | "not" | "bit_not" | "factorial" => Some(1),
         "concat" | "get" | "push" => Some(2),
         "len" | "pop" => Some(1),
+        "to_string" | "parse_i32" | "to_bool" => Some(1),
         _ => builtins::operator_arity(name),
     }
 }
