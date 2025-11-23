@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error)]
 pub enum CoreError {
     #[error("failed to read source: {0}")]
     SourceIo(#[from] std::io::Error),

@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use wasm_encoder::{
-    CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
-    TypeSection, ValType,
+    CodeSection, ExportKind, ExportSection, Function, FunctionSection, FunctionType, Instruction,
+    Module, TypeSection, ValType,
 };
 
 use crate::ast::Expr;
@@ -29,11 +29,14 @@ pub fn compile_wasm(
 
     let mut module = Module::new();
     let mut types = TypeSection::new();
-    types.function(vec![], vec![ValType::I32]);
+    let type_index = types.function(FunctionType {
+        params: Vec::<ValType>::new().into(),
+        results: vec![ValType::I32].into(),
+    });
     module.section(&types);
 
     let mut functions = FunctionSection::new();
-    functions.function(0);
+    functions.function(type_index);
     module.section(&functions);
 
     let mut code = CodeSection::new();
@@ -72,7 +75,9 @@ pub fn emit_llvm_ir(source: &str, stdlib_root: impl AsRef<Path>) -> Result<Strin
 
 fn emit_expression(expr: &Expr, function: &mut Function) -> Result<(), CoreError> {
     match expr {
-        Expr::Number(value) => function.instruction(&Instruction::I32Const(*value)),
+        Expr::Number(value) => {
+            function.instruction(&Instruction::I32Const(*value));
+        }
         Expr::Call { name, args } => {
             for arg in args {
                 emit_expression(arg, function)?;
@@ -80,19 +85,19 @@ fn emit_expression(expr: &Expr, function: &mut Function) -> Result<(), CoreError
             match name.as_str() {
                 "add" => {
                     expect_arity(name, args.len(), 2)?;
-                    function.instruction(&Instruction::I32Add)
+                    function.instruction(&Instruction::I32Add);
                 }
                 "sub" => {
                     expect_arity(name, args.len(), 2)?;
-                    function.instruction(&Instruction::I32Sub)
+                    function.instruction(&Instruction::I32Sub);
                 }
                 "mul" => {
                     expect_arity(name, args.len(), 2)?;
-                    function.instruction(&Instruction::I32Mul)
+                    function.instruction(&Instruction::I32Mul);
                 }
                 "div" => {
                     expect_arity(name, args.len(), 2)?;
-                    function.instruction(&Instruction::I32DivS)
+                    function.instruction(&Instruction::I32DivS);
                 }
                 "neg" => {
                     expect_arity(name, args.len(), 1)?;
@@ -174,6 +179,7 @@ mod tests {
     use super::*;
     use crate::parser::parse;
     use crate::stdlib::default_stdlib_root;
+    use std::path::PathBuf;
     use wasmparser::Parser;
 
     #[test]
@@ -197,6 +203,13 @@ mod tests {
     fn validates_division_by_zero() {
         let err = emit_llvm_ir("div 1 0", default_stdlib_root()).unwrap_err();
         assert!(matches!(err, CoreError::SemanticError(_)));
+    }
+
+    #[test]
+    fn reports_missing_stdlib_root() {
+        let missing_root = PathBuf::from("./path/that/does/not/exist");
+        let err = compile_wasm("add 1 2", &missing_root).unwrap_err();
+        assert!(matches!(err, CoreError::MissingStdlib(_)));
     }
 
     #[test]
