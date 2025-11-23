@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NEPLg1 Web Playground</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="main.js" defer></script>
+</head>
+<body>
+    <header class="page-header">
+        <h1>NEPLg1 Web Playground</h1>
+        <p class="lead">NEPL のコードをブラウザ上で編集するための試験的なプレイグラウンドです。</p>
+    </header>
+    <main class="layout">
+        <section class="panel instructions">
+            <h2>セットアップ</h2>
+            <ol>
+                <li>レポジトリルートで <code>scripts/fetch_editorsample.sh</code> を実行して、エディタ用リポジトリを <code>web/vendor/editorsample</code> にクローンします。</li>
+                <li>Trunk などの静的サーバーで <code>web/index.html</code> を配信します。</li>
+            </ol>
+            <p class="note">エディタが読み込めない場合は、クローンが成功しているか、配置パスが正しいかを確認してください。</p>
+        </section>
+        <section class="panel editor-panel">
+            <div class="panel-heading">
+                <h2>エディタ</h2>
+                <span id="editor-status" class="status status-warning">エディタの読み込みを待機中...</span>
+            </div>
+            <div class="editor-frame-wrapper">
+                <iframe id="editor-frame" title="NEPL Editor" src="vendor/editorsample/index.html"></iframe>
+                <div id="fallback" class="fallback" hidden>
+                    <p>エディタを読み込めませんでした。<code>scripts/fetch_editorsample.sh</code> を実行してから再度開いてください。</p>
+                    <textarea id="fallback-editor" aria-label="Fallback editor" spellcheck="false"></textarea>
+                </div>
+            </div>
+        </section>
+        <section class="panel output-panel">
+            <h2>メモ</h2>
+            <p>現在はエディタの組み込みのみを提供しています。今後、コンパイラの WebAssembly 版と接続してブラウザ内でコードを実行できるように拡張する予定です。</p>
+        </section>
+    </main>
+</body>
+</html>

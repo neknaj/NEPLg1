@@ -38,6 +38,16 @@ The current implementation supports prefix arithmetic expressions built from the
 
 The pipe operator `>` is available as a convenience for threading the previous result into the next function call. For example, `1 > neg > add 2` desugars to `add (neg 1) 2`.
 
+## Web playground
+
+An experimental browser playground lives under `web/`. To embed the external editor used for NEPL snippets, clone the editor repository before serving the page:
+
+```bash
+scripts/fetch_editorsample.sh
+```
+
+The script clones `https://github.com/bem130/editorsample` into `web/vendor/editorsample`. Set `EDITOR_SAMPLE_REPO`, `EDITOR_SAMPLE_REF`, or `EDITOR_SAMPLE_DEST` to override the repository, ref, or destination root for testing or offline mirroring. After cloning, serve `web/index.html` (for example with `trunk serve` or any static file server) to load the editor iframe and the playground scaffolding.
+
 ## Standard library layout
 Place `.nepl` files under `./stdlib`. The core crate loads every `.nepl` file recursively and records the relative path and contents in the `CompilationArtifact` so downstream tooling can embed or inspect the bundled library. The CLI uses this bundled path by default, and you can point it to an alternate root with `--stdlib /path/to/stdlib` when testing different library layouts. Platform shims live under `stdlib/platform` and wrap the WASM/WASI built-ins exposed by the compiler.
 
