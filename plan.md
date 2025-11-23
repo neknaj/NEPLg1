@@ -478,6 +478,29 @@ case Point { x: x1, y: _ } => ...
 
 といった書き方が自然に可能になる。
 
+## マルチプラットフォーム対応
+
+### コンパイル時制約
+```ebnf
+<when_expr> ::=
+    "when" "(" <expr> ")" <scoped_expr>
+```
+<expr> はbool型であり、コンパイル時に値が確定する  
+when (cond) block は、以下のように解釈される：
+cond をコンパイル時に評価する
+cond == true の場合：block の内部を通常どおりパースし、名前解決・型チェック・コード生成を行う
+cond == false の場合：block の内部は無視される このとき、block 内の未定義シンボル・型エラーなどは報告されない。
+cond がコンパイル時に値を持たない式であればコンパイルエラー
+
+### istarget
+コンパイル時関数 `istarget : (String) -> Bool`
+引数の String が 現在のコンパイルターゲット名と一致するなら true
+一致しないなら false
+#### 例
+istarget "wasm-core" → Wasm コア用ターゲットなら true
+istarget "wasi" → WASI 対応ターゲットなら true
+
+
 ## 処理系の実装
 
 P-styleの記法は、関数に限らず、型推論の段階で木構造が決定される

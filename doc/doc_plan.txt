@@ -1,0 +1,20 @@
+doc/
+  lang/
+    overview.md
+    syntax.md
+    expressions.md
+    modules_and_files.md
+    control_flow.md
+    multiplatform.md
+
+  compiler/
+    type_inference_and_overload.md   ; 現在の typing_detail.md をここに
+    pstyle_algorithm.md
+    codegen_wasm.md
+
+  stdlib/
+    overview.md
+    math.md
+    string_and_vec.md
+    platform_wasm_core.md
+    platform_wasi.md
