@@ -56,6 +56,40 @@
 
 これらの演算子はstd libから関数として提供する
 
+#### パイプ演算子 `>`
+
+構文 `LHS > RHS` は、「LHS の結果を、RHS の関数の第1引数として注入する」糖衣構文である。
+
+```ebnf
+<expr>       = <pipe_chain>
+
+<pipe_chain> = <pipe_term> { ">" <pipe_term> }    // 左結合
+
+<pipe_term>  = <expr_without_pipe>
+```
+
+`<expr_without_pipe>` は、`>` を含まない通常の式（関数適用・if式・loop式・match式・ブロック式など）を総称する抽象的な非終端とみなす。
+
+* 結合性: 左結合 (`A > B > C` は `(A > B) > C` と等価)
+* 優先順位: P-style の関数適用よりも低い
+
+  * 例: `f x > g` は `(f x) > g` として解釈される
+
+糖衣構文としての展開規則:
+
+* `RHS` が `F A1 A2 ... An` という式のとき、`LHS > RHS` は `F LHS A1 A2 ... An` と等価
+* `RHS` が `F` のとき、`LHS > F` は `F LHS` と等価
+
+P-style の連鎖の中に `>` がある場合、`>` の左側のトークン列から、**直近の完結した式** だけを LHS として切り出す。
+
+例:
+
+```neplg1
+add 1 add 2 3 > add 4
+== add 1 ( (add 2 3) > add 4 )
+== add 1 (add 4 (add 2 3))
+```
+
 ### 関数
 
 #### 関数リテラル式
@@ -264,7 +298,7 @@ matchパターンで使った識別子は、対応するmatchアーム(`match_ca
     | <qualified_type_ident>
     | <type_application>      // ジェネリクス導入時の拡張用
 
-<type_ident>          = <ident>
+<type_ident>           = <ident>
 <qualified_type_ident> = <namespace_name> "::" <type_ident>
 ```
 
@@ -314,7 +348,7 @@ import_nameはnamespaceの構造と似ていることが望まれる
 ### namespace式
 
 ```ebnf
-<namespace_expr> ::= "namespace" <namespace_name> <scoped_expr>
+<namespace_expr> ::= [ <pub_prefix> ] "namespace" <namespace_name> <scoped_expr>
 <pub_prefix>     = "pub"
 ```
 
@@ -322,6 +356,51 @@ import_nameはnamespaceの構造と似ていることが望まれる
 `<namespace_expr>`の`<scoped_expr>`直下では`pub` prefixを使用できる
 (さらにネストされた`scoped_expr`では不可)
 `<namespace_expr>`の型は`unit`
+
+namespace自体も`pub`を付けることで公開・非公開を制御できる。
+`namespace`内の`namespace`はデフォルトで非公開であり、外側から参照するには`pub namespace`か`pub use`による再公開が必要である。
+
+名前空間の解決は、**現在のnamespaceからの相対パス**として行う。ルート（最外）では、ファイルに定義されたtop-levelのnamespaceや識別子を基点として解決する。
+
+### use式
+
+```ebnf
+<use_expr> =
+    [ <pub_prefix> ] "use" <use_tree>
+
+<use_tree> =
+      <use_path> [ "as" <ident> ]
+    | <use_path> "::" "*"
+
+<use_path> =
+    <ident> { "::" <ident> }
+```
+
+`use`式は`unit`型の式であり、その`use`式が属するもっとも狭いスコープに、パス`<use_path>`の別名を導入する。
+
+* `use ns1::ns2::func1;` によって、そのスコープ内で `func1` という名前が使える
+* `use ns1::ns2::func1 as f1;` によって、そのスコープ内で `f1` という別名が使える
+* `use ns1::ns2::*;` によって、そのスコープ内で `ns1::ns2` 内の公開された要素が一括で導入される
+
+`pub use`の場合、その別名は親のnamespaceからも参照できる（再公開）。
+
+```neplg1
+namespace ns1 {
+    pub namespace ns2 {}
+    namespace ns3 {}
+    namespace ns4 { fn fn1 hoge }
+    pub use ns4;
+}
+
+// ルート名前空間から見たとき:
+
+use ns1::ns2;      // OK: ns2 は pub namespace として公開されている
+use ns1::ns3;      // error: ns3 は非公開 namespace
+use ns2;           // error: ルートから直接 ns2 は見えない
+use ns1::ns4::*;   // OK: ns1 内で `pub use ns4;` により再公開されている
+```
+
+`use`により導入された名前も、変数束縛と同様に、その式が属するスコープ内のみで有効となる。
 
 ### enum, struct
 
@@ -354,7 +433,7 @@ import_nameはnamespaceの構造と似ていることが望まれる
 `<scoped_list<enum_variant>>`や`<scoped_list<field>>`は、
 `match`式の`<scoped_list<match_case>>`と同じ挙動を持つ：
 
-```ebnf
+```neplg1
 // 例: ブレースを使う書き方
 enum Option<T> {
     Some(T);
@@ -386,14 +465,14 @@ struct Point:
 
 これにより、`match`のパターンで：
 
-```text
+```neplg1
 case Some(x) => ...
 case None    => ...
 ```
 
 や
 
-```text
+```neplg1
 case Point { x: x1, y: _ } => ...
 ```
 
@@ -423,14 +502,17 @@ CLIやWebPlayground用のwasmなど様々なインターフェイスを提供す
 
 #### 構文解析
 
-構文解析では括弧類、スコープとブロック式、include式とimport式の解析、処理を行う
-構文解析の段階で、P-styleの引数のような部分は扱わない
+構文解析では括弧類、スコープとブロック式、include式とimport式、namespace式、use式などの解析・処理を行う。
+構文解析の段階で、P-styleの引数のような部分は扱わない。
 
 変数束縛は`unit`の式なので、`let hoge hoge let hoge hoge`のような式は作れないため、
-スコープ解析や`;`の存在によって変数束縛の場所の一覧をこの段階で取得できるはずである
+スコープ解析や`;`の存在によって変数束縛の場所の一覧をこの段階で取得できるはずである。
 
 `enum` / `struct` の定義も、この段階で「スコープ内に属する宣言」として収集し、
 後段の名前解決で前方参照を許可する(暗黙のhoist扱い)。
+
+`use`式についても、この段階で「このスコープで導入されるエイリアスの候補」として解析しておき、
+名前解決フェーズで実際のパス解決と衝突検出を行う。
 
 #### 名前解決
 
@@ -444,6 +526,12 @@ CLIやWebPlayground用のwasmなど様々なインターフェイスを提供す
 * 同一スコープ内のすべての`enum`/`struct`を事前に登録し、型名として前方参照可能にする
 * `enum`のvariant名を値名前空間に登録し、パターン/コンストラクタとして解決する
 * `struct`のfield名はそのstruct型に紐づくメタ情報としてのみ保持し、`p.x`参照時に解決する
+
+`namespace` と `use` については：
+
+* `namespace`はスコープを作り、`pub`付きの要素だけが外側から見える
+* `use`式はそのスコープ内に別名を導入し、`pub use`はその別名を親のnamespaceに再公開する
+* パス解決は、現在のnamespaceからの相対パスとして行い、ルートではtop-levelから解決する
 
 #### 型推論
 
