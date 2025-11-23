@@ -1,0 +1,42 @@
+name: Rust Wasm Tests (NEPL-g1)
+
+on:
+    push:
+        branches:
+            - main
+            - develop
+    pull_request:
+        branches:
+            - main
+            - develop
+
+jobs:
+    wasm-test:
+        runs-on: ubuntu-latest
+
+        env:
+            CARGO_TERM_COLOR: always
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: actions-rs/toolchain@v1
+              with:
+                  profile: minimal
+                  toolchain: stable
+                  override: true
+
+            - name: Install wasm32 target
+              run: rustup target add wasm32-unknown-unknown
+
+            - name: Cache Cargo build
+              uses: Swatinem/rust-cache@v2
+              with:
+                  # Same cache key as other workflows
+                  shared-key: nepl-g1
+                  cache-on-failure: true
+
+            - name: Compile tests for wasm32 (no run)
+              run: cargo test --target wasm32-unknown-unknown --no-run --all --all-features --locked

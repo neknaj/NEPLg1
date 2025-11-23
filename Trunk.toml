@@ -1,0 +1,6 @@
+[build]
+target = "index.html"
+public_url = "/neplg1/"
+
+[watch]
+ignore = []

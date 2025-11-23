@@ -1,0 +1,39 @@
+name: Rust Tests (NEPL-g1)
+
+on:
+    push:
+        branches:
+            - main
+            - develop
+    pull_request:
+        branches:
+            - main
+            - develop
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+
+        env:
+            CARGO_TERM_COLOR: always
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust toolchain
+              uses: actions-rs/toolchain@v1
+              with:
+                  profile: minimal
+                  toolchain: stable
+                  override: true
+
+            - name: Cache Cargo build
+              uses: Swatinem/rust-cache@v2
+              with:
+                  # Shared cache key for all NEPL-g1 workflows
+                  shared-key: nepl-g1
+                  cache-on-failure: true
+
+            - name: Run cargo test
+              run: cargo test --all --all-features --locked
