@@ -61,6 +61,7 @@ mod tests {
         assert!(names.contains(&"bit.nepl".to_string()));
         assert!(names.contains(&"string.nepl".to_string()));
         assert!(names.contains(&"vec.nepl".to_string()));
+        assert!(names.contains(&"convert.nepl".to_string()));
         assert!(names.contains(&"platform/wasm_core.nepl".to_string()));
         assert!(names.contains(&"platform/wasi.nepl".to_string()));
 
@@ -77,6 +78,14 @@ mod tests {
             .expect("string module missing");
         assert!(string_file.contents.contains("concat"));
         assert!(string_file.contents.contains("len"));
+
+        let convert_file = files
+            .iter()
+            .find(|file| file.path == std::path::PathBuf::from("convert.nepl"))
+            .expect("convert module missing");
+        assert!(convert_file.contents.contains("to_string"));
+        assert!(convert_file.contents.contains("parse_i32"));
+        assert!(convert_file.contents.contains("to_bool"));
 
         let vec_file = files
             .iter()

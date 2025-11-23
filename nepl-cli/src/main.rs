@@ -392,6 +392,42 @@ mod tests {
     }
 
     #[test]
+    fn runs_conversion_helpers() {
+        let dir = tempdir().expect("tempdir");
+        let input_path = dir.path().join("input.nepl");
+        fs::write(
+            &input_path,
+            "add (parse_i32 \"39\") (add (len to_string (sub 10 8)) (to_bool concat \"x\" \"\"))",
+        )
+        .expect("write input");
+        let output_path = dir.path().join("out.wasm");
+
+        let cli = Cli {
+            input: Some(input_path.to_string_lossy().to_string()),
+            output: output_path.to_string_lossy().to_string(),
+            stdlib: None,
+            emit: "wasm".to_string(),
+            run: false,
+            lib: false,
+        };
+
+        execute(cli).expect("cli should succeed");
+
+        let bytes = fs::read(&output_path).expect("wasm output readable");
+        let engine = Engine::default();
+        let module = Module::new(&engine, bytes).expect("module");
+        let linker = Linker::new(&engine);
+        let mut store = Store::new(&engine, ());
+        let instance = linker
+            .instantiate_and_start(&mut store, &module)
+            .expect("instantiate");
+        let main = instance
+            .get_typed_func::<(), i32>(&store, "main")
+            .expect("typed func");
+        assert_eq!(main.call(&mut store, ()).expect("run"), 41);
+    }
+
+    #[test]
     fn links_wasi_builtins_when_running() {
         let artifact = compile_wasm("wasi_print (wasi_random)", default_stdlib_root())
             .expect("compile should succeed");

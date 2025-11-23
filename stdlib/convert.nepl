@@ -1,0 +1,11 @@
+// Conversion utilities for bridging string and numeric values.
+
+pub namespace convert:
+    // Render an integer to its string representation.
+    pub fn to_string(i32 value) -> string = to_string value
+
+    // Parse a decimal string into an i32, rejecting invalid inputs.
+    pub fn parse_i32(string value) -> i32 = parse_i32 value
+
+    // Normalize any truthy value into 1 or 0 for boolean-style flows.
+    pub fn to_bool(any value) -> i32 = to_bool value

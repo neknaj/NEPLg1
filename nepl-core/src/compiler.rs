@@ -485,6 +485,41 @@ fn evaluate(expr: &Expr) -> Result<Value, CoreError> {
                     ))),
                 }
             }
+            "to_string" => {
+                expect_arity(name, args.len(), 1)?;
+                match evaluate(&args[0])? {
+                    Value::Number(value) => Ok(Value::Str(value.to_string())),
+                    Value::Str(value) => Ok(Value::Str(value)),
+                    other => Err(CoreError::SemanticError(format!(
+                        "to_string expects number or string but found {:?}",
+                        other,
+                    ))),
+                }
+            }
+            "parse_i32" => {
+                expect_arity(name, args.len(), 1)?;
+                match evaluate(&args[0])? {
+                    Value::Number(value) => Ok(Value::Number(value)),
+                    Value::Str(text) => text
+                        .trim()
+                        .parse::<i32>()
+                        .map(Value::Number)
+                        .map_err(|_| {
+                            CoreError::SemanticError(
+                                "parse_i32 expects a decimal i32 representation".to_string(),
+                            )
+                        }),
+                    other => Err(CoreError::SemanticError(format!(
+                        "parse_i32 expects string or number but found {:?}",
+                        other,
+                    ))),
+                }
+            }
+            "to_bool" => {
+                expect_arity(name, args.len(), 1)?;
+                let value = truthy(evaluate(&args[0])?);
+                Ok(Value::Number(bool_to_i32(value)))
+            }
             "push" => {
                 expect_arity(name, args.len(), 2)?;
                 let collection = evaluate(&args[0])?;
@@ -774,6 +809,30 @@ mod tests {
 
         let vector_result = run_wasm_expression("len pop push [4 5] 6");
         assert_eq!(vector_result, 2);
+    }
+
+    #[test]
+    fn converts_strings_and_numbers() {
+        let parsed = run_wasm_expression("parse_i32 \"-2048\"");
+        assert_eq!(parsed, -2_048);
+
+        let rendered_length = run_wasm_expression("len to_string (sub 100 1)");
+        assert_eq!(rendered_length, 2);
+    }
+
+    #[test]
+    fn normalizes_values_to_boolean_flags() {
+        let from_zero = run_wasm_expression("to_bool 0");
+        assert_eq!(from_zero, 0);
+
+        let from_concat = run_wasm_expression("to_bool concat \"a\" \"b\"");
+        assert_eq!(from_concat, 1);
+    }
+
+    #[test]
+    fn rejects_invalid_parse_inputs() {
+        let err = compile_wasm("parse_i32 \"abc\"", default_stdlib_root()).unwrap_err();
+        assert!(matches!(err, CoreError::SemanticError(_)));
     }
 
     #[test]
