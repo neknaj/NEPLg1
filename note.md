@@ -1,9 +1,7 @@
 # Progress note
 
-- Implemented a basic NEPL arithmetic pipeline: lexing, parsing, validating, and code generating prefix expressions (`add`, `sub`, `mul`, `div`, `neg`) to WebAssembly and LLVM IR.
-- Added semantic validation to catch errors such as division by zero during compilation.
-- Updated the CLI integration tests to execute generated wasm and to report validation errors.
-- Added support for the pipe operator `>` with desugaring through the parser, compiler evaluation, and CLI execution paths.
-- Documented the supported subset (including the pipe operator) and workflow in README.md. Broader language features from plan.md and doc/starting_detail.md (namespaces, types, overloads, etc.) are still outstanding.
-- Updated wasm emission to the current `wasm-encoder` function type API and ensured arithmetic instructions are emitted explicitly; added a regression test for missing standard library roots. Simplified `CoreError` derivations accordingly. Test runs in this container are currently blocked by crates.io access (HTTP 403).
-- Added a `--stdlib` CLI flag to allow overriding the bundled standard library root, wired through to compilation and validated with new CLI and core tests. README documents the option.
+- Updated wasm emission to the current `wasm-encoder` API and reordered sections so exported `main` functions validate correctly with wasmi 0.51.
+- Added explicit stdlib root existence checks and recorded stdlib files in compilation artifacts; missing roots now surface as errors in both core and CLI flows.
+- Reworked CLI tests to exercise the execution pipeline directly without spawning the binary and validated wasm outputs with wasmi.
+- Added a core test that instantiates generated wasm with wasmi to ensure runtime compatibility.
+- Current implementation still reflects the minimal arithmetic subset; broader language features from `plan.md` and `doc/starting_detail.md` (namespaces, full typing, etc.) remain TODO.

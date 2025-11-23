@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use wasm_encoder::{
-    CodeSection, ExportKind, ExportSection, Function, FunctionSection, FunctionType, Instruction,
-    Module, TypeSection, ValType,
+    CodeSection, ExportKind, ExportSection, Function, FunctionSection, Instruction, Module,
+    TypeSection, ValType,
 };
 
 use crate::ast::Expr;
@@ -29,15 +29,17 @@ pub fn compile_wasm(
 
     let mut module = Module::new();
     let mut types = TypeSection::new();
-    let type_index = types.function(FunctionType {
-        params: Vec::<ValType>::new().into(),
-        results: vec![ValType::I32].into(),
-    });
+    let type_index = types.len();
+    types.ty().function([], [ValType::I32]);
     module.section(&types);
 
     let mut functions = FunctionSection::new();
     functions.function(type_index);
     module.section(&functions);
+
+    let mut exports = ExportSection::new();
+    exports.export("main", ExportKind::Func, 0);
+    module.section(&exports);
 
     let mut code = CodeSection::new();
     let mut function = Function::new(vec![]);
@@ -45,10 +47,6 @@ pub fn compile_wasm(
     function.instruction(&Instruction::End);
     code.function(&function);
     module.section(&code);
-
-    let mut exports = ExportSection::new();
-    exports.export("main", ExportKind::Func, 0);
-    module.section(&exports);
 
     Ok(CompilationArtifact {
         wasm: module.finish(),
@@ -180,8 +178,8 @@ mod tests {
     use crate::parser::parse;
     use crate::stdlib::default_stdlib_root;
     use std::path::PathBuf;
-    use wasmparser::Parser;
     use tempfile;
+    use wasmparser::Parser;
 
     #[test]
     fn builds_arithmetic_wasm_module() {
@@ -192,6 +190,26 @@ mod tests {
             .parse(artifact.wasm.as_slice(), true)
             .expect("payload");
         assert!(matches!(payload, wasmparser::Chunk::Parsed { .. }));
+    }
+
+    #[test]
+    fn executes_generated_wasm_with_wasmi() {
+        let artifact = compile_wasm("add 4 (sub 10 3)", default_stdlib_root())
+            .expect("compile should succeed");
+
+        let engine = wasmi::Engine::default();
+        let module = wasmi::Module::new(&engine, &artifact.wasm).expect("module");
+        let linker = wasmi::Linker::new(&engine);
+        let mut store = wasmi::Store::new(&engine, ());
+        let instance = linker
+            .instantiate_and_start(&mut store, &module)
+            .expect("instantiate");
+
+        let main = instance
+            .get_typed_func::<(), i32>(&store, "main")
+            .expect("typed func");
+        let result = main.call(&mut store, ()).expect("execute main");
+        assert_eq!(result, 11);
     }
 
     #[test]
@@ -225,7 +243,11 @@ mod tests {
             .expect("write nested stdlib file");
 
         let artifact = compile_wasm("add 1 2", stdlib_root).expect("compile should succeed");
-        assert_eq!(artifact.stdlib.len(), 2, "expected two stdlib files recorded");
+        assert_eq!(
+            artifact.stdlib.len(),
+            2,
+            "expected two stdlib files recorded"
+        );
 
         let paths: Vec<_> = artifact
             .stdlib

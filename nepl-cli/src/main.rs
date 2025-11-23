@@ -21,7 +21,7 @@ struct Cli {
     #[arg(
         long,
         value_name = "PATH",
-        help = "Path to the standard library root (defaults to bundled stdlib)",
+        help = "Path to the standard library root (defaults to bundled stdlib)"
     )]
     stdlib: Option<String>,
 
@@ -104,13 +104,11 @@ fn write_output(path: &str, bytes: &[u8]) -> Result<()> {
 fn run_wasm(artifact: &CompilationArtifact) -> Result<i32> {
     let engine = Engine::default();
     let module = Module::new(&engine, &artifact.wasm).context("failed to compile wasm artifact")?;
-    let mut linker = Linker::new(&engine);
+    let linker = Linker::new(&engine);
     let mut store = Store::new(&engine, ());
     let instance = linker
-        .instantiate(&mut store, &module)
-        .context("failed to instantiate module")?
-        .start(&mut store)
-        .context("failed to start module")?;
+        .instantiate_and_start(&mut store, &module)
+        .context("failed to instantiate module")?;
     let main = instance
         .get_typed_func::<(), i32>(&store, "main")
         .context("exported main function missing or has wrong type")?;
@@ -123,8 +121,6 @@ fn run_wasm(artifact: &CompilationArtifact) -> Result<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert_cmd::Command;
-    use predicates::prelude::*;
     use tempfile::tempdir;
 
     #[test]
@@ -134,18 +130,29 @@ mod tests {
         fs::write(&input_path, "add 1 2").expect("write input");
         let output_path = dir.path().join("out.wasm");
 
-        Command::cargo_bin("nepl-cli")
-            .expect("binary exists")
-            .arg("--input")
-            .arg(&input_path)
-            .arg("--output")
-            .arg(&output_path)
-            .arg("--run")
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("Program exited with 3"));
+        let cli = Cli {
+            input: Some(input_path.to_string_lossy().to_string()),
+            output: output_path.to_string_lossy().to_string(),
+            stdlib: None,
+            emit: "wasm".to_string(),
+            run: true,
+            lib: false,
+        };
 
-        assert!(output_path.exists(), "wasm output was not created");
+        execute(cli).expect("cli should succeed");
+
+        let bytes = fs::read(&output_path).expect("wasm output readable");
+        let engine = Engine::default();
+        let module = Module::new(&engine, bytes).expect("module");
+        let linker = Linker::new(&engine);
+        let mut store = Store::new(&engine, ());
+        let instance = linker
+            .instantiate_and_start(&mut store, &module)
+            .expect("instantiate");
+        let main = instance
+            .get_typed_func::<(), i32>(&store, "main")
+            .expect("typed func");
+        assert_eq!(main.call(&mut store, ()).expect("run"), 3);
     }
 
     #[test]
@@ -155,16 +162,16 @@ mod tests {
         fs::write(&input_path, "mul 2 3").expect("write input");
         let output_path = dir.path().join("out.ll");
 
-        Command::cargo_bin("nepl-cli")
-            .expect("binary exists")
-            .arg("--input")
-            .arg(&input_path)
-            .arg("--output")
-            .arg(&output_path)
-            .arg("--emit")
-            .arg("llvm")
-            .assert()
-            .success();
+        let cli = Cli {
+            input: Some(input_path.to_string_lossy().to_string()),
+            output: output_path.to_string_lossy().to_string(),
+            stdlib: None,
+            emit: "llvm".to_string(),
+            run: false,
+            lib: false,
+        };
+
+        execute(cli).expect("cli should succeed");
 
         let ir = fs::read_to_string(&output_path).expect("read ir");
         assert!(ir.contains("define i32 @main"));
@@ -179,18 +186,19 @@ mod tests {
 
         let stdlib_root = dir.path().join("stdlib");
         std::fs::create_dir_all(&stdlib_root).expect("create stdlib root");
-        std::fs::write(stdlib_root.join("std.nepl"), "namespace std:").expect("write stdlib placeholder");
+        std::fs::write(stdlib_root.join("std.nepl"), "namespace std:")
+            .expect("write stdlib placeholder");
 
-        Command::cargo_bin("nepl-cli")
-            .expect("binary exists")
-            .arg("--input")
-            .arg(&input_path)
-            .arg("--output")
-            .arg(&output_path)
-            .arg("--stdlib")
-            .arg(&stdlib_root)
-            .assert()
-            .success();
+        let cli = Cli {
+            input: Some(input_path.to_string_lossy().to_string()),
+            output: output_path.to_string_lossy().to_string(),
+            stdlib: Some(stdlib_root.to_string_lossy().to_string()),
+            emit: "wasm".to_string(),
+            run: false,
+            lib: false,
+        };
+
+        execute(cli).expect("cli should succeed");
 
         assert!(output_path.exists(), "wasm output was not created");
     }
@@ -202,17 +210,20 @@ mod tests {
         fs::write(&input_path, "add 1 1").expect("write input");
         let output_path = dir.path().join("out.wasm");
 
-        Command::cargo_bin("nepl-cli")
-            .expect("binary exists")
-            .arg("--input")
-            .arg(&input_path)
-            .arg("--output")
-            .arg(&output_path)
-            .arg("--stdlib")
-            .arg(dir.path().join("missing"))
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("MissingStdlib"));
+        let cli = Cli {
+            input: Some(input_path.to_string_lossy().to_string()),
+            output: output_path.to_string_lossy().to_string(),
+            stdlib: Some(dir.path().join("missing").to_string_lossy().to_string()),
+            emit: "wasm".to_string(),
+            run: false,
+            lib: false,
+        };
+
+        let err = execute(cli).expect_err("cli should fail");
+        assert!(
+            err.to_string()
+                .contains("standard library directory was not found")
+        );
     }
 
     #[test]
@@ -222,15 +233,17 @@ mod tests {
         fs::write(&input_path, "div 4 0").expect("write input");
         let output_path = dir.path().join("out.wasm");
 
-        Command::cargo_bin("nepl-cli")
-            .expect("binary exists")
-            .arg("--input")
-            .arg(&input_path)
-            .arg("--output")
-            .arg(&output_path)
-            .assert()
-            .failure()
-            .stderr(predicate::str::contains("division by zero"));
+        let cli = Cli {
+            input: Some(input_path.to_string_lossy().to_string()),
+            output: output_path.to_string_lossy().to_string(),
+            stdlib: None,
+            emit: "wasm".to_string(),
+            run: false,
+            lib: false,
+        };
+
+        let err = execute(cli).expect_err("cli should fail");
+        assert!(err.to_string().contains("division by zero"));
     }
 
     #[test]
@@ -240,17 +253,28 @@ mod tests {
         fs::write(&input_path, "1 > neg > add 2").expect("write input");
         let output_path = dir.path().join("out.wasm");
 
-        Command::cargo_bin("nepl-cli")
-            .expect("binary exists")
-            .arg("--input")
-            .arg(&input_path)
-            .arg("--output")
-            .arg(&output_path)
-            .arg("--run")
-            .assert()
-            .success()
-            .stdout(predicate::str::contains("Program exited with 1"));
+        let cli = Cli {
+            input: Some(input_path.to_string_lossy().to_string()),
+            output: output_path.to_string_lossy().to_string(),
+            stdlib: None,
+            emit: "wasm".to_string(),
+            run: true,
+            lib: false,
+        };
 
-        assert!(output_path.exists(), "wasm output was not created");
+        execute(cli).expect("cli should succeed");
+
+        let bytes = fs::read(&output_path).expect("wasm output readable");
+        let engine = Engine::default();
+        let module = Module::new(&engine, bytes).expect("module");
+        let linker = Linker::new(&engine);
+        let mut store = Store::new(&engine, ());
+        let instance = linker
+            .instantiate_and_start(&mut store, &module)
+            .expect("instantiate");
+        let main = instance
+            .get_typed_func::<(), i32>(&store, "main")
+            .expect("typed func");
+        assert_eq!(main.call(&mut store, ()).expect("run"), 1);
     }
 }
