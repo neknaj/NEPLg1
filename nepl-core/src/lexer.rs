@@ -4,8 +4,11 @@ use crate::error::CoreError;
 pub enum TokenKind {
     Ident(String),
     Number(i32),
+    String(String),
     LParen,
     RParen,
+    LBracket,
+    RBracket,
     Pipe,
 }
 
@@ -29,11 +32,52 @@ pub fn lex(input: &str) -> Result<Vec<Token>, CoreError> {
                 kind: TokenKind::RParen,
                 position: idx,
             }),
+            '[' => tokens.push(Token {
+                kind: TokenKind::LBracket,
+                position: idx,
+            }),
+            ']' => tokens.push(Token {
+                kind: TokenKind::RBracket,
+                position: idx,
+            }),
             '>' => tokens.push(Token {
                 kind: TokenKind::Pipe,
                 position: idx,
             }),
             c if c.is_whitespace() => continue,
+            '"' => {
+                let mut content = String::new();
+                let mut terminated = false;
+                while let Some((_, next_ch)) = iter.next() {
+                    if next_ch == '"' {
+                        terminated = true;
+                        break;
+                    }
+                    if next_ch == '\\' {
+                        if let Some((_, escaped)) = iter.next() {
+                            content.push(escaped);
+                            continue;
+                        }
+                        return Err(CoreError::LexError {
+                            position: idx,
+                            message: "unterminated string literal".to_string(),
+                        });
+                    }
+                    content.push(next_ch);
+                }
+
+                if !terminated {
+                    return Err(CoreError::LexError {
+                        position: idx,
+                        message: "unterminated string literal".to_string(),
+                    });
+                }
+
+                tokens.push(Token {
+                    kind: TokenKind::String(content),
+                    position: idx,
+                });
+            }
             c if c.is_ascii_digit() || c == '-' => {
                 let start = idx;
                 let mut end = idx + ch.len_utf8();
@@ -106,6 +150,18 @@ mod tests {
     fn lexes_pipe_operator() {
         let tokens = lex("1 > neg").expect("lex should succeed");
         assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Pipe)));
+    }
+
+    #[test]
+    fn lexes_strings_and_brackets() {
+        let tokens = lex("len [1 2] \"ok\"").expect("lex should succeed");
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::LBracket)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::RBracket)));
+        assert!(
+            tokens
+                .iter()
+                .any(|t| matches!(t.kind, TokenKind::String(_)))
+        );
     }
 
     #[test]

@@ -19,6 +19,25 @@ pub struct CompilationArtifact {
     pub builtins: Vec<BuiltinDescriptor>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Value {
+    Number(i32),
+    Str(String),
+    Vector(Vec<Value>),
+}
+
+impl Value {
+    fn as_i32(self) -> Result<i32, CoreError> {
+        match self {
+            Value::Number(value) => Ok(value),
+            other => Err(CoreError::SemanticError(format!(
+                "expected numeric value but found {:?}",
+                other,
+            ))),
+        }
+    }
+}
+
 pub fn compile_wasm(
     source: &str,
     stdlib_root: impl AsRef<Path>,
@@ -98,7 +117,7 @@ pub fn emit_llvm_ir(source: &str, stdlib_root: impl AsRef<Path>) -> Result<Strin
     let stdlib = load_stdlib_files(stdlib_root)
         .map_err(|_| CoreError::MissingStdlib(stdlib_root.to_path_buf()))?;
     let expr = parse(source)?;
-    let value = evaluate(&expr)?;
+    let value = evaluate(&expr)?.as_i32()?;
 
     let header = "; ModuleID = \"nepl-placeholder\"\nsource_filename = \"nepl-input\"\n";
     let mut lines = String::new();
@@ -118,6 +137,9 @@ fn emit_expression(
     match expr {
         Expr::Number(value) => {
             function.instruction(&Instruction::I32Const(*value));
+        }
+        Expr::String(_) | Expr::Vector(_) => {
+            emit_constant(expr, function)?;
         }
         Expr::Call { name, args } => match name.as_str() {
             "add" => emit_binary(args, function, builtin_indices, Instruction::I32Add)?,
@@ -162,12 +184,16 @@ fn emit_expression(
                 let index = *builtin_indices.get(builtin_name).expect("index present");
                 function.instruction(&Instruction::Call(index));
             }
-            _ => {
-                let value = evaluate(expr)?;
-                function.instruction(&Instruction::I32Const(value));
-            }
+            "len" | "concat" | "get" | "push" | "pop" => emit_constant(expr, function)?,
+            _ => emit_constant(expr, function)?,
         },
     }
+    Ok(())
+}
+
+fn emit_constant(expr: &Expr, function: &mut Function) -> Result<(), CoreError> {
+    let value = evaluate(expr)?.as_i32()?;
+    function.instruction(&Instruction::I32Const(value));
     Ok(())
 }
 
@@ -219,92 +245,102 @@ fn emit_truthy(
 }
 
 fn validate(expr: &Expr) -> Result<(), CoreError> {
-    evaluate(expr).map(|_| ())
+    evaluate(expr)?.as_i32().map(|_| ())
 }
 
-fn evaluate(expr: &Expr) -> Result<i32, CoreError> {
+fn evaluate(expr: &Expr) -> Result<Value, CoreError> {
     match expr {
-        Expr::Number(value) => Ok(*value),
+        Expr::Number(value) => Ok(Value::Number(*value)),
+        Expr::String(value) => Ok(Value::Str(value.clone())),
+        Expr::Vector(values) => {
+            let mut evaluated = Vec::with_capacity(values.len());
+            for value in values {
+                evaluated.push(evaluate(value)?);
+            }
+            Ok(Value::Vector(evaluated))
+        }
         Expr::Call { name, args } => match name.as_str() {
             "and" => {
                 expect_arity(name, args.len(), 2)?;
                 let left = truthy(evaluate(&args[0])?);
                 let right = truthy(evaluate(&args[1])?);
-                Ok(bool_to_i32(left && right))
+                Ok(Value::Number(bool_to_i32(left && right)))
             }
             "or" => {
                 expect_arity(name, args.len(), 2)?;
                 let left = truthy(evaluate(&args[0])?);
                 let right = truthy(evaluate(&args[1])?);
-                Ok(bool_to_i32(left || right))
+                Ok(Value::Number(bool_to_i32(left || right)))
             }
             "xor" => {
                 expect_arity(name, args.len(), 2)?;
                 let left = truthy(evaluate(&args[0])?);
                 let right = truthy(evaluate(&args[1])?);
-                Ok(bool_to_i32(left ^ right))
+                Ok(Value::Number(bool_to_i32(left ^ right)))
             }
             "neg" => {
                 expect_arity(name, args.len(), 1)?;
-                let value = evaluate(&args[0])?;
-                Ok(value.wrapping_neg())
+                let value = expect_number(evaluate(&args[0])?, "neg operand")?;
+                Ok(Value::Number(value.wrapping_neg()))
             }
             "not" => {
                 expect_arity(name, args.len(), 1)?;
-                let value = evaluate(&args[0])?;
-                Ok(bool_to_i32(!truthy(value)))
+                let value = truthy(evaluate(&args[0])?);
+                Ok(Value::Number(bool_to_i32(!value)))
             }
             "add" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
-                Ok(left.wrapping_add(right))
+                let left = expect_number(evaluate(&args[0])?, "add lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "add rhs")?;
+                Ok(Value::Number(left.wrapping_add(right)))
             }
             "sub" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
-                Ok(left.wrapping_sub(right))
+                let left = expect_number(evaluate(&args[0])?, "sub lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "sub rhs")?;
+                Ok(Value::Number(left.wrapping_sub(right)))
             }
             "mul" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
-                Ok(left.wrapping_mul(right))
+                let left = expect_number(evaluate(&args[0])?, "mul lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "mul rhs")?;
+                Ok(Value::Number(left.wrapping_mul(right)))
             }
             "div" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
+                let left = expect_number(evaluate(&args[0])?, "div lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "div rhs")?;
                 if right == 0 {
                     return Err(CoreError::SemanticError(
                         "division by zero is not allowed".to_string(),
                     ));
                 }
-                Ok(left.wrapping_div(right))
+                Ok(Value::Number(left.wrapping_div(right)))
             }
             "mod" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
+                let left = expect_number(evaluate(&args[0])?, "mod lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "mod rhs")?;
                 if right == 0 {
                     return Err(CoreError::SemanticError(
                         "modulo by zero is not allowed".to_string(),
                     ));
                 }
-                Ok(left.wrapping_rem(right))
+                Ok(Value::Number(left.wrapping_rem(right)))
             }
             "pow" => {
                 expect_arity(name, args.len(), 2)?;
-                let base = evaluate(&args[0])?;
-                let exponent = evaluate(&args[1])?;
+                let base = expect_number(evaluate(&args[0])?, "pow base")?;
+                let exponent = expect_number(evaluate(&args[1])?, "pow exponent")?;
                 if exponent < 0 {
                     return Err(CoreError::SemanticError(
                         "negative exponents are not supported".to_string(),
                     ));
                 }
-                base.checked_pow(exponent as u32)
-                    .ok_or_else(|| CoreError::SemanticError("overflow during pow".to_string()))
+                let value = base
+                    .checked_pow(exponent as u32)
+                    .ok_or_else(|| CoreError::SemanticError("overflow during pow".to_string()))?;
+                Ok(Value::Number(value))
             }
             "lt" => compare(name, args, |l, r| l < r),
             "le" => compare(name, args, |l, r| l <= r),
@@ -314,83 +350,192 @@ fn evaluate(expr: &Expr) -> Result<i32, CoreError> {
             "ge" => compare(name, args, |l, r| l >= r),
             "bit_and" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
-                Ok(left & right)
+                let left = expect_number(evaluate(&args[0])?, "bit_and lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "bit_and rhs")?;
+                Ok(Value::Number(left & right))
             }
             "bit_or" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
-                Ok(left | right)
+                let left = expect_number(evaluate(&args[0])?, "bit_or lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "bit_or rhs")?;
+                Ok(Value::Number(left | right))
             }
             "bit_xor" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
-                Ok(left ^ right)
+                let left = expect_number(evaluate(&args[0])?, "bit_xor lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "bit_xor rhs")?;
+                Ok(Value::Number(left ^ right))
             }
             "bit_not" => {
                 expect_arity(name, args.len(), 1)?;
-                let value = evaluate(&args[0])?;
-                Ok(!value)
+                let value = expect_number(evaluate(&args[0])?, "bit_not operand")?;
+                Ok(Value::Number(!value))
             }
             "bit_shl" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
-                Ok(left.wrapping_shl(right as u32))
+                let left = expect_number(evaluate(&args[0])?, "bit_shl lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "bit_shl rhs")?;
+                Ok(Value::Number(left.wrapping_shl(right as u32)))
             }
             "bit_shr" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
-                Ok(((left as u32).wrapping_shr(right as u32)) as i32)
+                let left = expect_number(evaluate(&args[0])?, "bit_shr lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "bit_shr rhs")?;
+                Ok(Value::Number(
+                    ((left as u32).wrapping_shr(right as u32)) as i32,
+                ))
             }
             "wasm_pagesize" => {
                 expect_arity(name, args.len(), 0)?;
-                Ok(65536)
+                Ok(Value::Number(65536))
             }
             "wasi_random" => {
                 expect_arity(name, args.len(), 0)?;
-                Ok(4)
+                Ok(Value::Number(4))
             }
             "wasi_print" => {
                 expect_arity(name, args.len(), 1)?;
-                let value = evaluate(&args[0])?;
-                Ok(value)
+                let value = expect_number(evaluate(&args[0])?, "wasi_print operand")?;
+                Ok(Value::Number(value))
             }
             "gcd" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
-                Ok(gcd(left, right))
+                let left = expect_number(evaluate(&args[0])?, "gcd lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "gcd rhs")?;
+                Ok(Value::Number(gcd(left, right)))
             }
             "lcm" => {
                 expect_arity(name, args.len(), 2)?;
-                let left = evaluate(&args[0])?;
-                let right = evaluate(&args[1])?;
+                let left = expect_number(evaluate(&args[0])?, "lcm lhs")?;
+                let right = expect_number(evaluate(&args[1])?, "lcm rhs")?;
                 let divisor = gcd(left, right);
-                left.checked_div(divisor)
+                let value = left
+                    .checked_div(divisor)
                     .and_then(|v| v.checked_mul(right))
-                    .ok_or_else(|| CoreError::SemanticError("overflow during lcm".to_string()))
+                    .ok_or_else(|| CoreError::SemanticError("overflow during lcm".to_string()))?;
+                Ok(Value::Number(value))
             }
             "factorial" => {
                 expect_arity(name, args.len(), 1)?;
-                let value = evaluate(&args[0])?;
-                factorial(value)
+                let value = expect_number(evaluate(&args[0])?, "factorial operand")?;
+                Ok(Value::Number(factorial(value)?))
             }
             "permutation" => {
                 expect_arity(name, args.len(), 2)?;
-                let n = evaluate(&args[0])?;
-                let r = evaluate(&args[1])?;
-                permutation(n, r)
+                let n = expect_number(evaluate(&args[0])?, "permutation n")?;
+                let r = expect_number(evaluate(&args[1])?, "permutation r")?;
+                Ok(Value::Number(permutation(n, r)?))
             }
             "combination" => {
                 expect_arity(name, args.len(), 2)?;
-                let n = evaluate(&args[0])?;
-                let r = evaluate(&args[1])?;
-                combination(n, r)
+                let n = expect_number(evaluate(&args[0])?, "combination n")?;
+                let r = expect_number(evaluate(&args[1])?, "combination r")?;
+                Ok(Value::Number(combination(n, r)?))
+            }
+            "len" => {
+                expect_arity(name, args.len(), 1)?;
+                match evaluate(&args[0])? {
+                    Value::Str(value) => Ok(Value::Number(value.chars().count() as i32)),
+                    Value::Vector(values) => Ok(Value::Number(values.len() as i32)),
+                    other => Err(CoreError::SemanticError(format!(
+                        "len expects string or vector but found {:?}",
+                        other,
+                    ))),
+                }
+            }
+            "concat" => {
+                expect_arity(name, args.len(), 2)?;
+                let left = evaluate(&args[0])?;
+                let right = evaluate(&args[1])?;
+                match (left, right) {
+                    (Value::Str(l), Value::Str(r)) => Ok(Value::Str(format!("{l}{r}"))),
+                    (Value::Vector(mut l), Value::Vector(r)) => {
+                        l.extend(r);
+                        Ok(Value::Vector(l))
+                    }
+                    (l, r) => Err(CoreError::SemanticError(format!(
+                        "concat expects matching string or vector arguments but found {:?} and {:?}",
+                        l, r,
+                    ))),
+                }
+            }
+            "get" => {
+                expect_arity(name, args.len(), 2)?;
+                let collection = evaluate(&args[0])?;
+                let index = expect_number(evaluate(&args[1])?, "get index")?;
+                match collection {
+                    Value::Str(text) => {
+                        let idx = to_index(index, text.chars().count(), "string index")?;
+                        let value = text
+                            .chars()
+                            .nth(idx)
+                            .map(|c| Value::Str(c.to_string()))
+                            .unwrap_or_else(|| Value::Str(String::new()));
+                        Ok(value)
+                    }
+                    Value::Vector(values) => {
+                        let idx = to_index(index, values.len(), "vector index")?;
+                        Ok(values.get(idx).cloned().ok_or_else(|| {
+                            CoreError::SemanticError("index out of bounds".to_string())
+                        })?)
+                    }
+                    other => Err(CoreError::SemanticError(format!(
+                        "get expects string or vector but found {:?}",
+                        other,
+                    ))),
+                }
+            }
+            "push" => {
+                expect_arity(name, args.len(), 2)?;
+                let collection = evaluate(&args[0])?;
+                match collection {
+                    Value::Str(mut text) => {
+                        let suffix = match evaluate(&args[1])? {
+                            Value::Str(value) => value,
+                            other => {
+                                return Err(CoreError::SemanticError(format!(
+                                    "push on string expects string suffix but found {:?}",
+                                    other,
+                                )));
+                            }
+                        };
+                        text.push_str(&suffix);
+                        Ok(Value::Str(text))
+                    }
+                    Value::Vector(mut values) => {
+                        let item = evaluate(&args[1])?;
+                        values.push(item);
+                        Ok(Value::Vector(values))
+                    }
+                    other => Err(CoreError::SemanticError(format!(
+                        "push expects string or vector but found {:?}",
+                        other,
+                    ))),
+                }
+            }
+            "pop" => {
+                expect_arity(name, args.len(), 1)?;
+                match evaluate(&args[0])? {
+                    Value::Str(mut text) => {
+                        if text.is_empty() {
+                            return Err(CoreError::SemanticError(
+                                "cannot pop from empty string".to_string(),
+                            ));
+                        }
+                        text.pop();
+                        Ok(Value::Str(text))
+                    }
+                    Value::Vector(mut values) => {
+                        values.pop().ok_or_else(|| {
+                            CoreError::SemanticError("cannot pop from empty vector".to_string())
+                        })?;
+                        Ok(Value::Vector(values))
+                    }
+                    other => Err(CoreError::SemanticError(format!(
+                        "pop expects string or vector but found {:?}",
+                        other,
+                    ))),
+                }
             }
             other => Err(CoreError::SemanticError(format!(
                 "evaluation for operator '{other}' is not implemented",
@@ -403,19 +548,48 @@ fn compare(
     name: &str,
     args: &[Expr],
     predicate: impl FnOnce(i32, i32) -> bool,
-) -> Result<i32, CoreError> {
+) -> Result<Value, CoreError> {
     expect_arity(name, args.len(), 2)?;
-    let left = evaluate(&args[0])?;
-    let right = evaluate(&args[1])?;
-    Ok(bool_to_i32(predicate(left, right)))
+    let left = expect_number(evaluate(&args[0])?, "comparison lhs")?;
+    let right = expect_number(evaluate(&args[1])?, "comparison rhs")?;
+    Ok(Value::Number(bool_to_i32(predicate(left, right))))
 }
 
-fn truthy(value: i32) -> bool {
-    value != 0
+fn truthy(value: Value) -> bool {
+    match value {
+        Value::Number(number) => number != 0,
+        Value::Str(text) => !text.is_empty(),
+        Value::Vector(values) => !values.is_empty(),
+    }
 }
 
 fn bool_to_i32(value: bool) -> i32 {
     if value { 1 } else { 0 }
+}
+
+fn expect_number(value: Value, context: &str) -> Result<i32, CoreError> {
+    match value {
+        Value::Number(number) => Ok(number),
+        other => Err(CoreError::SemanticError(format!(
+            "{context} expects numeric value but found {:?}",
+            other,
+        ))),
+    }
+}
+
+fn to_index(index: i32, len: usize, context: &str) -> Result<usize, CoreError> {
+    if index < 0 {
+        return Err(CoreError::SemanticError(format!(
+            "{context} cannot be negative",
+        )));
+    }
+    let idx = index as usize;
+    if idx >= len {
+        return Err(CoreError::SemanticError(format!(
+            "{context} {index} out of bounds for length {len}",
+        )));
+    }
+    Ok(idx)
 }
 
 fn gcd(mut a: i32, mut b: i32) -> i32 {
@@ -594,6 +768,15 @@ mod tests {
     }
 
     #[test]
+    fn executes_string_and_vector_expressions_in_wasm() {
+        let string_result = run_wasm_expression("len concat \"abc\" \"de\"");
+        assert_eq!(string_result, 5);
+
+        let vector_result = run_wasm_expression("len pop push [4 5] 6");
+        assert_eq!(vector_result, 2);
+    }
+
+    #[test]
     fn records_and_executes_wasi_builtins() {
         let artifact = compile_wasm("wasi_print (wasi_random)", default_stdlib_root())
             .expect("compile should succeed");
@@ -682,7 +865,8 @@ mod tests {
 
     #[test]
     fn exposes_stdlib_contents_for_consumers() {
-        let artifact = compile_wasm("add 1 2", default_stdlib_root()).expect("compile should succeed");
+        let artifact =
+            compile_wasm("add 1 2", default_stdlib_root()).expect("compile should succeed");
 
         let std_entry = artifact
             .stdlib
@@ -697,34 +881,139 @@ mod tests {
     #[test]
     fn evaluates_expression() {
         let expr = parse("add 1 (mul 2 3)").expect("parse");
-        assert_eq!(evaluate(&expr).unwrap(), 7);
+        assert_eq!(evaluate(&expr).unwrap().as_i32().unwrap(), 7);
     }
 
     #[test]
     fn evaluates_pipe_expression() {
         let expr = parse("1 > neg > add 2").expect("parse");
-        assert_eq!(evaluate(&expr).unwrap(), 1);
+        assert_eq!(evaluate(&expr).unwrap().as_i32().unwrap(), 1);
     }
 
     #[test]
     fn evaluates_extended_math_operations() {
-        assert_eq!(evaluate(&parse("mod 10 3").unwrap()).unwrap(), 1);
-        assert_eq!(evaluate(&parse("pow 2 4").unwrap()).unwrap(), 16);
-        assert_eq!(evaluate(&parse("gcd 54 24").unwrap()).unwrap(), 6);
-        assert_eq!(evaluate(&parse("lcm 6 8").unwrap()).unwrap(), 24);
-        assert_eq!(evaluate(&parse("factorial 5").unwrap()).unwrap(), 120);
-        assert_eq!(evaluate(&parse("permutation 5 2").unwrap()).unwrap(), 20);
-        assert_eq!(evaluate(&parse("combination 5 2").unwrap()).unwrap(), 10);
+        assert_eq!(
+            evaluate(&parse("mod 10 3").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            evaluate(&parse("pow 2 4").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            16
+        );
+        assert_eq!(
+            evaluate(&parse("gcd 54 24").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            6
+        );
+        assert_eq!(
+            evaluate(&parse("lcm 6 8").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            24
+        );
+        assert_eq!(
+            evaluate(&parse("factorial 5").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            120
+        );
+        assert_eq!(
+            evaluate(&parse("permutation 5 2").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            20
+        );
+        assert_eq!(
+            evaluate(&parse("combination 5 2").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            10
+        );
     }
 
     #[test]
     fn evaluates_comparison_and_bitwise_operations() {
-        assert_eq!(evaluate(&parse("lt 1 2").unwrap()).unwrap(), 1);
-        assert_eq!(evaluate(&parse("ge 3 7").unwrap()).unwrap(), 0);
-        assert_eq!(evaluate(&parse("bit_and 6 3").unwrap()).unwrap(), 2);
-        assert_eq!(evaluate(&parse("bit_or 4 1").unwrap()).unwrap(), 5);
-        assert_eq!(evaluate(&parse("bit_not 0").unwrap()).unwrap(), -1);
-        assert_eq!(evaluate(&parse("bit_shl 1 3").unwrap()).unwrap(), 8);
+        assert_eq!(
+            evaluate(&parse("lt 1 2").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            evaluate(&parse("ge 3 7").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            evaluate(&parse("bit_and 6 3").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            evaluate(&parse("bit_or 4 1").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            5
+        );
+        assert_eq!(
+            evaluate(&parse("bit_not 0").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            -1
+        );
+        assert_eq!(
+            evaluate(&parse("bit_shl 1 3").unwrap())
+                .unwrap()
+                .as_i32()
+                .unwrap(),
+            8
+        );
+    }
+
+    #[test]
+    fn evaluates_string_and_vector_operations() {
+        let concat_len = evaluate(&parse("len concat \"na\" \"no\"").unwrap())
+            .unwrap()
+            .as_i32()
+            .unwrap();
+        assert_eq!(concat_len, 4);
+
+        let trimmed_len = evaluate(&parse("len pop push \"hi\" \"!\"").unwrap())
+            .unwrap()
+            .as_i32()
+            .unwrap();
+        assert_eq!(trimmed_len, 2);
+
+        let vector_value = evaluate(&parse("get [10 20 30] 1").unwrap())
+            .unwrap()
+            .as_i32()
+            .unwrap();
+        assert_eq!(vector_value, 20);
+
+        let vector_len = evaluate(&parse("len pop push [1 2] 3").unwrap())
+            .unwrap()
+            .as_i32()
+            .unwrap();
+        assert_eq!(vector_len, 2);
     }
 
     #[test]

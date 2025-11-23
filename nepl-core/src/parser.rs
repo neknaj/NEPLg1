@@ -40,6 +40,8 @@ fn parse_prefix_expr(
     *position += 1;
     match &token.kind {
         TokenKind::Number(value) => Ok(Expr::Number(*value)),
+        TokenKind::String(value) => Ok(Expr::String(value.clone())),
+        TokenKind::LBracket => parse_vector_literal(tokens, position),
         TokenKind::LParen => {
             let expr = parse_pipe_expr(tokens, position)?;
             let closing = tokens
@@ -53,6 +55,7 @@ fn parse_prefix_expr(
             }
         }
         TokenKind::RParen => Err(CoreError::ParseError("unexpected ')'".to_string())),
+        TokenKind::RBracket => Err(CoreError::ParseError("unexpected ']'".to_string())),
         TokenKind::Pipe => Err(CoreError::ParseError("unexpected '>'".to_string())),
         TokenKind::Ident(name) => {
             let arity = operator_arity(name)
@@ -95,7 +98,27 @@ fn operator_arity(name: &str) -> Option<usize> {
         "bit_and" | "bit_or" | "bit_xor" | "bit_shl" | "bit_shr" => Some(2),
         "gcd" | "lcm" | "permutation" | "combination" => Some(2),
         "neg" | "not" | "bit_not" | "factorial" => Some(1),
+        "concat" | "get" | "push" => Some(2),
+        "len" | "pop" => Some(1),
         _ => builtins::operator_arity(name),
+    }
+}
+
+fn parse_vector_literal(tokens: &[Token], position: &mut usize) -> Result<Expr, CoreError> {
+    let mut elements = Vec::new();
+    loop {
+        let Some(token) = tokens.get(*position) else {
+            return Err(CoreError::ParseError(
+                "unterminated vector literal".to_string(),
+            ));
+        };
+        if matches!(token.kind, TokenKind::RBracket) {
+            *position += 1;
+            return Ok(Expr::Vector(elements));
+        }
+
+        let element = parse_pipe_expr(tokens, position)?;
+        elements.push(element);
     }
 }
 
@@ -179,6 +202,20 @@ mod tests {
 
         let expr = parse("factorial 4").expect("parse factorial");
         assert!(expr.is_call("factorial"));
+    }
+
+    #[test]
+    fn parses_string_and_vector_literals() {
+        let expr = parse("\"hello\"").expect("parse string");
+        assert!(matches!(expr, Expr::String(text) if text == "hello"));
+
+        let expr = parse("len [1 2 3]").expect("parse vector len");
+        if let Expr::Call { args, .. } = expr {
+            assert_eq!(args.len(), 1);
+            assert!(matches!(args[0], Expr::Vector(ref values) if values.len() == 3));
+        } else {
+            panic!("expected len call with vector argument");
+        }
     }
 
     #[test]

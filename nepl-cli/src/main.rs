@@ -131,10 +131,7 @@ fn run_wasm(artifact: &CompilationArtifact) -> Result<i32> {
     Ok(result)
 }
 
-fn run_wasm_with_handler<H>(
-    artifact: &CompilationArtifact,
-    handler: H,
-) -> Result<(i32, H)>
+fn run_wasm_with_handler<H>(artifact: &CompilationArtifact, handler: H) -> Result<(i32, H)>
 where
     H: BuiltinHandler + 'static,
 {
@@ -167,9 +164,7 @@ fn link_builtins<H: BuiltinHandler + 'static>(
                     .func_wrap(
                         builtin.module.as_str(),
                         builtin.name.as_str(),
-                        |mut caller: Caller<'_, H>| -> i32 {
-                            caller.data_mut().wasm_pagesize()
-                        },
+                        |mut caller: Caller<'_, H>| -> i32 { caller.data_mut().wasm_pagesize() },
                     )
                     .with_context(|| format!("failed to link builtin {}", builtin.name))?;
             }
@@ -178,9 +173,7 @@ fn link_builtins<H: BuiltinHandler + 'static>(
                     .func_wrap(
                         builtin.module.as_str(),
                         builtin.name.as_str(),
-                        |mut caller: Caller<'_, H>| -> i32 {
-                            caller.data_mut().wasi_random()
-                        },
+                        |mut caller: Caller<'_, H>| -> i32 { caller.data_mut().wasi_random() },
                     )
                     .with_context(|| format!("failed to link builtin {}", builtin.name))?;
             }
@@ -203,8 +196,8 @@ fn link_builtins<H: BuiltinHandler + 'static>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nepl_core::stdlib::default_stdlib_root;
     use nepl_core::compile_wasm;
+    use nepl_core::stdlib::default_stdlib_root;
     use tempfile::tempdir;
 
     #[test]
@@ -363,6 +356,42 @@ mod tests {
     }
 
     #[test]
+    fn runs_string_and_vector_stdlib_paths() {
+        let dir = tempdir().expect("tempdir");
+        let input_path = dir.path().join("input.nepl");
+        fs::write(
+            &input_path,
+            "add (len concat \"ha\" \"!\") (len pop push [1 2] 3)",
+        )
+        .expect("write input");
+        let output_path = dir.path().join("out.wasm");
+
+        let cli = Cli {
+            input: Some(input_path.to_string_lossy().to_string()),
+            output: output_path.to_string_lossy().to_string(),
+            stdlib: None,
+            emit: "wasm".to_string(),
+            run: true,
+            lib: false,
+        };
+
+        execute(cli).expect("cli should succeed");
+
+        let bytes = fs::read(&output_path).expect("wasm output readable");
+        let engine = Engine::default();
+        let module = Module::new(&engine, bytes).expect("module");
+        let linker = Linker::new(&engine);
+        let mut store = Store::new(&engine, ());
+        let instance = linker
+            .instantiate_and_start(&mut store, &module)
+            .expect("instantiate");
+        let main = instance
+            .get_typed_func::<(), i32>(&store, "main")
+            .expect("typed func");
+        assert_eq!(main.call(&mut store, ()).expect("run"), 5);
+    }
+
+    #[test]
     fn links_wasi_builtins_when_running() {
         let artifact = compile_wasm("wasi_print (wasi_random)", default_stdlib_root())
             .expect("compile should succeed");
@@ -388,9 +417,14 @@ mod tests {
             }
         }
 
-        let (result, state) =
-            run_wasm_with_handler(&artifact, WasiHost { random: 123, prints: vec![] })
-                .expect("run should succeed");
+        let (result, state) = run_wasm_with_handler(
+            &artifact,
+            WasiHost {
+                random: 123,
+                prints: vec![],
+            },
+        )
+        .expect("run should succeed");
 
         assert_eq!(result, 123);
         assert_eq!(state.prints, vec![123]);
