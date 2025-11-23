@@ -1,0 +1,16 @@
+[package]
+name = "nepl-cli"
+version = "0.1.0"
+edition = "2024"
+authors = ["NEPL Team"]
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+nepl-core = { path = "../nepl-core" }
+wasmi.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates.workspace = true
+tempfile.workspace = true
