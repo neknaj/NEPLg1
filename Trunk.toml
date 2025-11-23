@@ -1,5 +1,5 @@
 [build]
-target = "index.html"
+target = "web/index.html"
 public_url = "/neplg1/"
 
 [watch]
