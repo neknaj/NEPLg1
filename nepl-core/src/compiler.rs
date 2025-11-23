@@ -639,6 +639,20 @@ mod tests {
     }
 
     #[test]
+    fn exposes_stdlib_contents_for_consumers() {
+        let artifact = compile_wasm("add 1 2", default_stdlib_root()).expect("compile should succeed");
+
+        let std_entry = artifact
+            .stdlib
+            .iter()
+            .find(|file| file.path == PathBuf::from("std.nepl"))
+            .expect("std.nepl should be present");
+
+        assert!(std_entry.contents.contains("namespace std:"));
+        assert!(artifact.builtins.is_empty());
+    }
+
+    #[test]
     fn evaluates_expression() {
         let expr = parse("add 1 (mul 2 3)").expect("parse");
         assert_eq!(evaluate(&expr).unwrap(), 7);

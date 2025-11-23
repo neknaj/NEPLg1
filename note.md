@@ -9,3 +9,5 @@
 - Extended the standard library surface with string, vector, and platform placeholder modules and updated stdlib loading tests to assert their presence.
 - Added a built-in facility for WASM/WASI imports, recorded them in compilation artifacts, and linked them in the CLI runtime so `--run` can execute modules that depend on host intrinsics.
 - Finished the platform stdlib modules to wrap the new built-ins and added runtime tests (core + CLI) that exercise `wasm_pagesize`, `wasi_random`, and `wasi_print` through wasmi 0.51.
+- Introduced a reusable builtin handler trait in the CLI so host environments can override WASM/WASI bindings; tests now assert custom handlers receive calls and can log values.
+- Added artifact-facing checks that surface bundled stdlib contents for consumers and documented the default host behaviors in the README to keep the CLI and stdlib expectations aligned.
